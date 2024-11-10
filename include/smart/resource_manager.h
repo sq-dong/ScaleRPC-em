@@ -53,9 +53,11 @@ namespace sds {
             uint32_t rkey;
             int valid;
         };
-
-        struct ExchangeMessage {
-            int peer_node_id;
+          
+        struct __attribute__((packed)) ExchangeMessage {
+            uint8_t is_from_initiator;
+            uint8_t use_qp_multiplexing;
+            node_t peer_node_id;
             uint16_t lid;
             uint16_t qp_size;
             uint32_t qp_num[kMaxThreads];

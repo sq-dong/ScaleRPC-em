@@ -389,8 +389,12 @@ namespace sds {
     int ResourceManager::send_local_info(RemoteNode &node, int fd, int qp_size) {
         ExchangeMessage msg;
         const size_t msg_size = sizeof(ExchangeMessage);
+        bool is_initiator = false;
+        bool is_first_node = ((&node - node_list_) == 0 && node.qp_size == 0) ?
+                            true : false;
 
         if (!node.qp_size) {
+            is_initiator = true;    // initiator calls send_local_info before receive_peer_info
             assert(qp_size > 0);
             node.qp_size = qp_size;
             node.qp_list = new QueuePair *[node.qp_size];
@@ -398,7 +402,9 @@ namespace sds {
                 node.qp_list[i] = nullptr;
             }
             for (int i = 0; i < node.qp_size; ++i) {
-                node.qp_list[i] = allocate_queue_pair(i);
+                node.qp_list[i] = (config_.use_qp_multiplexing && !is_first_node)
+                                        ? node_list_[0].qp_list[i]
+                                        : allocate_queue_pair(i);
                 if (!node.qp_list[i]) {
                     return -1;
                 }
@@ -406,6 +412,8 @@ namespace sds {
         }
 
         memset(&msg, 0, msg_size);
+        msg.is_from_initiator = is_initiator ? 1 : 0;
+        msg.use_qp_multiplexing = config_.use_qp_multiplexing ? 1 : 0;
         msg.peer_node_id = (int) (&node - node_list_);
         msg.lid = ib_lid_;
         msg.qp_size = node.qp_size;
@@ -427,6 +435,16 @@ namespace sds {
             return -1;
         }
         return 0;
+    }
+
+    static bool check_qp_state(struct ibv_qp *qp, ibv_qp_state state) {
+        struct ibv_qp_attr qp_attr;
+        struct ibv_qp_init_attr qp_init_attr;
+        if (ibv_query_qp(qp, &qp_attr, IBV_QP_STATE, &qp_init_attr) != 0) {
+            perror("Failed to query QP state");
+            return false;
+        }
+        return qp_attr.qp_state == state;
     }
 
     int ResourceManager::receive_peer_info(RemoteNode &node, int fd) {
@@ -454,7 +472,10 @@ namespace sds {
         union ibv_gid gid;
         memcpy(&gid, msg.gid, GID_LEN);
         for (int i = 0; i < node.qp_size; ++i) {
-            if (enable_queue_pair(node.qp_list[i], msg.lid, msg.qp_num[i], i << 16, &gid)) {
+            if (check_qp_state(node.qp_list[i]->qp, IBV_QPS_RTS)) {
+                continue;
+            }
+            if (enable_queue_pair(node.qp_list[i], msg.lid, msg.qp_num[i], 1, &gid)) {
                 return -1;
             }
         }
@@ -463,7 +484,7 @@ namespace sds {
             node.peer_mr_list[i] = msg.mr_list[i];
         }
 
-        node.peer_node_id = msg.peer_node_id;
+        node.peer_node_id = (int) msg.peer_node_id;
         node.local_node_id = (int) (&node - node_list_);
         return 0;
     }
@@ -616,7 +637,7 @@ namespace sds {
         flags = IBV_QP_STATE | IBV_QP_PATH_MTU;
         memset(&attr, 0, sizeof(attr));
         attr.qp_state = IBV_QPS_RTR;
-        attr.path_mtu = IBV_MTU_512;
+        attr.path_mtu = IBV_MTU_1024;
         if (qp->qp->qp_type == IBV_QPT_RC) {
             flags |= IBV_QP_AV | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN |
                      IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
@@ -633,6 +654,7 @@ namespace sds {
             attr.ah_attr.port_num = ib_port_;
             attr.dest_qp_num = qp_num;
             attr.rq_psn = psn; // match remote sq_psn
+            attr.sq_psn = psn;
             attr.max_dest_rd_atomic = 16;
             attr.min_rnr_timer = 12;
         }

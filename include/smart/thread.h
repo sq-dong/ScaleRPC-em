@@ -122,6 +122,47 @@ namespace sds {
         gBindToSocket[GetThreadID()] = socket_id;
     }
 
+    static void BindCoreNuma(int core_id, int numa_id) {
+        if (numa_available() == -1) {
+            SDS_PERROR("numa_available");
+            return;
+        }
+
+        struct bitmask* cpumask = numa_allocate_cpumask();
+        if (numa_node_to_cpus(numa_id, cpumask) < 0) {
+            SDS_PERROR("numa_node_to_cpus");
+            numa_free_cpumask(cpumask);
+            return;
+        }
+
+        int target_cpu = -1;
+        int cpu_count = 0;
+        for (int i = 0; i < cpumask->size; ++i) {
+            if (numa_bitmask_isbitset(cpumask, i)) {
+                if (cpu_count == core_id) {
+                    target_cpu = i;
+                    break;
+                }
+                ++cpu_count;
+            }
+        }
+
+        if (target_cpu == -1) {
+            SDS_PERROR("Failed to find target CPU.");
+            numa_free_cpumask(cpumask);
+            return;
+        }
+
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(target_cpu, &cpuset);
+        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+        numa_free_cpumask(cpumask);
+        gBindToCore[GetThreadID()] = target_cpu;
+        gBindToSocket[GetThreadID()] = numa_id;
+    }
+
     static inline void RemapBindCore(int id) {
         int cpus = numa_num_configured_cpus();
         int sockets = numa_num_configured_nodes();

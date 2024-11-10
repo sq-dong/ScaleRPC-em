@@ -55,6 +55,8 @@ namespace sds {
             tuner_running_ = true;
             tuner_ = std::thread(&Initiator::tuner_func, this);
         }
+
+        use_qp_multiplexing_ = config.use_qp_multiplexing;
     }
 
     Initiator::Initiator(void *cache_pptr) : tuner_running_(false), cache_offset_(0) {
@@ -86,6 +88,8 @@ namespace sds {
             tuner_running_ = true;
             tuner_ = std::thread(&Initiator::tuner_func, this);
         }
+
+        use_qp_multiplexing_ = config.use_qp_multiplexing;
     }
 
     Initiator::~Initiator() {
@@ -228,13 +232,17 @@ namespace sds {
 
     int Initiator::add_request(ibv_wr_opcode opcode, const void *local, const GlobalAddress &remote, size_t length,
                                uint64_t compare_add, uint64_t swap, int flags) {
-        auto &req_buf = tl_data_[GetThreadID()].req_buf[GetTaskID()];
+        auto thread_id = GetThreadID();
+        auto &req_buf = tl_data_[thread_id].req_buf[GetTaskID()];
         assert(remote.node < manager_.config().max_nodes);
         assert((uint64_t) local >= (uint64_t) cache_ && (uint64_t) local < (uint64_t) cache_ + cache_size_);
         uint32_t rkey;
         uintptr_t remote_va;
         if (manager_.get_remote_memory_key(remote.node, remote.mr_id, remote.offset, length, rkey, remote_va)) {
             return -1;
+        }
+        if (use_qp_multiplexing_) {
+            remote_va = (remote_va & 0xFFC0FFFFFFFFFFFF) | ((uintptr_t)((thread_id) & 0x3F) << 48);
         }
 
         if (req_buf.size && req_buf.mem_node_id != remote.node) {

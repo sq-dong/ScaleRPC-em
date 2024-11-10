@@ -28,7 +28,7 @@
 #include <cstdint>
 
 namespace sds {
-    using node_t = uint8_t;
+    using node_t = uint16_t;
     using mr_id_t = uint8_t;
 
     const static mr_id_t MAIN_MEMORY_MR_ID = 0;
@@ -37,9 +37,9 @@ namespace sds {
 
     union GlobalAddress {
         struct {
-            uint64_t offset: 48;
+            uint64_t offset: 40;
             uint64_t mr_id: 8;
-            uint64_t node: 8;
+            uint64_t node: 16;
         };
         uint64_t raw;
 

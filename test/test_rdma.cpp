@@ -39,6 +39,7 @@
 using namespace sds;
 
 static const size_t MEM_POOL_SIZE = (1ull << 30);
+static const int numa_id = 0;
 
 void run_server(uint16_t port) {
     Target target;
@@ -71,7 +72,7 @@ Initiator *node[32];
 void *test_thread_func(void *arg) {
     int thread_id = (int) (uintptr_t) arg;
     auto ctx = node[thread_id % nr_nodes];
-    BindCore(thread_id);
+    BindCoreNuma(thread_id, numa_id);
     size_t kSegmentSize = MEM_POOL_SIZE / nr_threads;
     kSegmentSize &= ~4095ull;
     size_t align_size = block_size < 64 ? 64 : block_size;
@@ -135,8 +136,8 @@ double connect_time = 0.0;
 void report(uint64_t elapsed_time) {
     auto bandwidth = total_attempts * block_size / elapsed_time / 1024.0 / 1024.0;
     auto throughput = total_attempts / elapsed_time / 1000000.0;
-    SDS_INFO("%s: #threads=%d, #depth=%ld, #block_size=%ld, BW=%.3lf MB/s, IOPS=%.3lf M/s, conn establish time=%.3lf ms",
-             dump_prefix.c_str(), nr_threads, depth, block_size, bandwidth, throughput, connect_time);
+    SDS_INFO("%s: #threads = %d, #connections = %ld, #depth = %ld, #block_size = %ld, BW = %.3lf MB/s, IOPS = %.3lf M/s, conn establish time = %.3lf ms",
+             dump_prefix.c_str(), nr_threads, connections, depth, block_size, bandwidth, throughput, connect_time);
     if (dump_file_path.empty()) {
         return;
     }
@@ -221,7 +222,6 @@ int main(int argc, char **argv) {
     } else {
         dump_prefix = "rdma-" + type;
     }
-    BindCore(0);
     if (argc == 1) {
         run_server(port);
     } else {
@@ -231,7 +231,7 @@ int main(int argc, char **argv) {
         }
         nr_threads = argc < 2 ? 1 : atoi(argv[1]);
         depth = argc < 3 ? 1 : atoi(argv[2]);
-        // connections = argc < 4 ? 1 : atoi(argv[3]);
+        connections = argc < 4 ? 1 : atoi(argv[3]);
         std::vector<std::string> server_list;
         JsonConfig servers = config.get("servers");
         for (int i = 0; i < servers.size(); ++i) {

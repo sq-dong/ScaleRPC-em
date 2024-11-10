@@ -1,10 +1,10 @@
 {
   "servers": [
-    "optane06"
+    "192.168.104.239"
   ],
   "port": 12345,
   "block_size": 8,
   "qp_num": -1,
   "dump_file_path": "test_rdma.csv",
-  "type": "read"
+  "type": "write"
 }

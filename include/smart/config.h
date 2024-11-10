@@ -57,6 +57,7 @@ namespace sds {
         bool qp_sharing;
         bool use_conflict_avoidance;
         bool use_speculative_lookup;
+        bool use_qp_multiplexing;
         
     public:
         SmartConfig() {
@@ -142,6 +143,8 @@ namespace sds {
             sample_cycles = config.get("work_req_throt").get("sample_cycles").get_uint64();
             inf_credit_weight = config.get("work_req_throt").get("inf_credit_weight").get_double();
             qp_sharing = config.get("experimental").get("qp_sharing").get_bool();
+
+            use_qp_multiplexing = config.get("rdmax").get("use_qp_multiplexing").get_bool();
         }
 
         SmartConfig(const SmartConfig &) = delete;
