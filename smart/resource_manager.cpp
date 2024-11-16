@@ -402,9 +402,11 @@ namespace sds {
                 node.qp_list[i] = nullptr;
             }
             for (int i = 0; i < node.qp_size; ++i) {
-                node.qp_list[i] = (config_.use_qp_multiplexing && !is_first_node)
-                                        ? node_list_[0].qp_list[i]
-                                        : allocate_queue_pair(i);
+#ifdef QP_MULTIPLEXING
+                node.qp_list[i] = !is_first_node ? node_list_[0].qp_list[i] : allocate_queue_pair(i);
+#else
+                node.qp_list[i] = allocate_queue_pair(i);
+#endif
                 if (!node.qp_list[i]) {
                     return -1;
                 }
@@ -413,7 +415,11 @@ namespace sds {
 
         memset(&msg, 0, msg_size);
         msg.is_from_initiator = is_initiator ? 1 : 0;
-        msg.use_qp_multiplexing = config_.use_qp_multiplexing ? 1 : 0;
+#ifdef QP_MULTIPLEXING
+        msg.use_qp_multiplexing = 1;
+#else
+        msg.use_qp_multiplexing = 0;
+#endif
         msg.peer_node_id = (int) (&node - node_list_);
         msg.lid = ib_lid_;
         msg.qp_size = node.qp_size;

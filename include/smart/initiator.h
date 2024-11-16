@@ -306,7 +306,6 @@ namespace sds {
         size_t cache_size_;
         std::atomic<size_t> cache_offset_;
         alignas(128) ThreadLocal tl_data_[kMaxThreads];
-        bool use_qp_multiplexing_;
     };
 }
 

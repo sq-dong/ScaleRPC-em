@@ -42,7 +42,7 @@
 #endif
 
 #define ALWAYS_INLINE inline __attribute__((always_inline))
-#define MAP_HUGE_2MB (21 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
 #define ROOT_DIR ".."
 
 #define RED "\033[1;31m"
@@ -164,7 +164,7 @@ namespace sds {
 
     static inline void *mmap_huge_page(size_t capacity) {
         void *addr = (char *) mmap(nullptr, capacity, PROT_READ | PROT_WRITE,
-                                   MAP_ANON | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_2MB,
+                                   MAP_ANON | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB,
                                    -1, 0);
         if (addr == MAP_FAILED) {
             SDS_PERROR("mmap");

@@ -55,8 +55,6 @@ namespace sds {
             tuner_running_ = true;
             tuner_ = std::thread(&Initiator::tuner_func, this);
         }
-
-        use_qp_multiplexing_ = config.use_qp_multiplexing;
     }
 
     Initiator::Initiator(void *cache_pptr) : tuner_running_(false), cache_offset_(0) {
@@ -88,8 +86,6 @@ namespace sds {
             tuner_running_ = true;
             tuner_ = std::thread(&Initiator::tuner_func, this);
         }
-
-        use_qp_multiplexing_ = config.use_qp_multiplexing;
     }
 
     Initiator::~Initiator() {
@@ -241,9 +237,10 @@ namespace sds {
         if (manager_.get_remote_memory_key(remote.node, remote.mr_id, remote.offset, length, rkey, remote_va)) {
             return -1;
         }
-        if (use_qp_multiplexing_) {
-            remote_va = (remote_va & 0xFFC0FFFFFFFFFFFF) | ((uintptr_t)((thread_id) & 0x3F) << 48);
-        }
+
+#ifdef QP_MULTIPLEXING
+        remote_va = (remote_va & 0xFFC0FFFFFFFFFFFF) | ((uintptr_t)((thread_id) & 0x3F) << 48);
+#endif
 
         if (req_buf.size && req_buf.mem_node_id != remote.node) {
             if (sync()) {

@@ -36,10 +36,6 @@
   "use_conflict_avoidance": false,
   "use_speculative_lookup": false,
 
-  "rdmax": {
-    "use_qp_multiplexing": true
-  },
-
   "experimental": {
     "qp_sharing": false
   }

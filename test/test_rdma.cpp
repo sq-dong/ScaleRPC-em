@@ -39,7 +39,7 @@
 using namespace sds;
 
 static const size_t MEM_POOL_SIZE = (1ull << 30);
-static const int numa_id = 0;
+int numa_node;
 
 void run_server(uint16_t port) {
     Target target;
@@ -72,7 +72,7 @@ Initiator *node[32];
 void *test_thread_func(void *arg) {
     int thread_id = (int) (uintptr_t) arg;
     auto ctx = node[thread_id % nr_nodes];
-    BindCoreNuma(thread_id, numa_id);
+    BindCoreNuma(thread_id, numa_node);
     size_t kSegmentSize = MEM_POOL_SIZE / nr_threads;
     kSegmentSize &= ~4095ull;
     size_t align_size = block_size < 64 ? 64 : block_size;
@@ -222,6 +222,7 @@ int main(int argc, char **argv) {
     } else {
         dump_prefix = "rdma-" + type;
     }
+    numa_node = (int)config.get("numa_node").get_int64();
     if (argc == 1) {
         run_server(port);
     } else {
