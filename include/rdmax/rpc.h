@@ -98,7 +98,7 @@ class RequestRegion {
   struct targets {
     node_t clt_id;
     uint64_t resp_offset;
-  } targets_[16];
+  } targets_[WORKER_DEPTH];
 #ifdef MEMORY_MULTIPLEXING
   uint32_t index_base_;
   uint16_t new_window_size_;

@@ -55,8 +55,8 @@ pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
 static const int dummy_rpc_req_type = 0;
-static const int dummy_rpc_req_size = 8;
-static const int dummy_rpc_resp_size = 8;
+static const int dummy_rpc_req_size = 32;
+static const int dummy_rpc_resp_size = 32;
 
 static const int worker_depth = 32;
 static int clt_cmsg_depth = 1;
@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
     // @num_clients clients to connect
     num_clients = atoi(argv[2]);
     run_server(client_machine_list, port);
-  } else if (argc = 4) {
+  } else if (argc == 4) {
     // @num_threads threads to emulate clients
     num_threads = atoi(argv[1]);
     // @num_clients clients to be emulated
