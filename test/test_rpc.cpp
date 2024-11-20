@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -40,6 +41,8 @@
 #include "rdmax/thread.h"
 
 using namespace rdmax;
+
+#define MEASURE_LATENCY 1
 
 int numa_node;
 static const size_t MEM_POOL_SIZE = (1ull << 30);
@@ -90,8 +93,31 @@ void report(uint64_t elapsed_time) {
       throughput * clt_inner_req_depth);
 }
 
+#if MEASURE_LATENCY == 1
+// Function to get current time in nanoseconds
+double get_current_time_in_nanoseconds() {
+  using namespace std::chrono;
+  auto now = high_resolution_clock::now();
+  return duration_cast<nanoseconds>(now.time_since_epoch()).count();
+}
+
+// Structure to pass arguments to thread functions
+struct ThreadArgs {
+  int thread_id;
+  std::vector<double> *latency_samples;
+};
+#else
+struct ThreadArgs {
+  int thread_id;
+};
+#endif
+
 void *client_thread_func(void *arg) {
-  int thread_id = GetThreadID();
+  ThreadArgs *args = (ThreadArgs *)arg;
+  int thread_id = args->thread_id;
+#if MEASURE_LATENCY == 1
+  std::vector<double> &latency_samples = *(args->latency_samples);
+#endif
   auto ctx = rpc_client;
   BindCoreNuma(thread_id, numa_node);
 
@@ -108,15 +134,11 @@ void *client_thread_func(void *arg) {
     }
   }
 
-  // int num_clients_this_thread =
-  //     (thread_id == num_threads - 1)
-  //         ? num_clients - (num_threads - 1) * (num_clients / num_threads)
-  //         : num_clients / num_threads;
-  // for (int i = 0; i < num_clients_this_thread; ++i) {
-  //   resp_regions.emplace_back(*ctx, i + thread_id * (num_clients /
-  //   num_threads),
-  //                             thread_id, clt_cmsg_depth);
-  // }
+#if MEASURE_LATENCY == 1
+  double start_time = 0.0;
+  const int sample_interval = 500000 / num_clients;
+  size_t cnt = 0;
+#endif
 
   pthread_barrier_wait(&barrier);
   for (int i = 0; i < num_clients_this_thread; ++i) {
@@ -134,6 +156,14 @@ void *client_thread_func(void *arg) {
       if (!resp_regions[i].check_resp_cmsg(clt_cmsg_depth - 1)) {
         continue;
       }
+#if MEASURE_LATENCY == 1
+      if (i == 0 && cnt == sample_interval) {
+        double end_time = get_current_time_in_nanoseconds();
+        double latency = end_time - start_time;
+        latency_samples.push_back(latency);
+        cnt = 0;
+      }
+#endif
       for (int j = 0; j < clt_cmsg_depth; ++j) {
         rpc_cmsg_t *req_cmsg = resp_regions[i].start_req_cmsg(
             dummy_rpc_req_type,
@@ -141,11 +171,60 @@ void *client_thread_func(void *arg) {
         add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
       }
       int num_reqs_posted = resp_regions[i].post_req_cmsgs();
+
+#if MEASURE_LATENCY == 1
+      if (i == 0) {
+        ++cnt;
+        if (cnt == sample_interval) {
+          start_time = get_current_time_in_nanoseconds();
+        }
+      }
+#endif
     }
   }
   pthread_barrier_wait(&barrier);
   return NULL;
 }
+
+#if MEASURE_LATENCY == 1
+// Function to compute and report latency statistics
+void compute_and_report_latency_statistics(const std::vector<double> &samples) {
+  if (samples.empty()) {
+    std::cout << "No latency samples collected." << std::endl;
+    return;
+  }
+
+  std::vector<double> sorted_samples = samples;
+  std::sort(sorted_samples.begin(), sorted_samples.end());
+
+  double sum = 0.0;
+  for (double s : samples) {
+    sum += s;
+  }
+  double average = sum / samples.size();
+
+  double median = 0.0;
+  if (sorted_samples.size() % 2 == 0) {
+    median = (sorted_samples[sorted_samples.size() / 2 - 1] +
+              sorted_samples[sorted_samples.size() / 2]) /
+             2;
+  } else {
+    median = sorted_samples[sorted_samples.size() / 2];
+  }
+
+  size_t idx_99 = static_cast<size_t>(0.99 * sorted_samples.size());
+  if (idx_99 >= sorted_samples.size()) {
+    idx_99 = sorted_samples.size() - 1;
+  }
+  double p99_latency = sorted_samples[idx_99];
+
+  std::cout << "Samples collected: " << samples.size() << std::endl;
+  std::cout << "Latency statistics (nanoseconds):" << std::endl;
+  std::cout << "Average latency: " << average << " ns" << std::endl;
+  std::cout << "Median latency: " << median << " ns" << std::endl;
+  std::cout << "99th percentile latency: " << p99_latency << " ns" << std::endl;
+}
+#endif
 
 void run_client(uint16_t port) {
   pthread_t tid[kMaxThreads];
@@ -154,14 +233,23 @@ void run_client(uint16_t port) {
   int rc = rpc_client->start(port);
   assert(!rc);
   while (rpc_client->get_connection_count() != num_clients) {
-    sleep(.1);
+    usleep(100000);  // sleep for 0.1 seconds
   }
   rpc_client->stop();
   SDS_INFO("client machine get ready");
 
+  ThreadArgs thread_args[kMaxThreads];
+#if MEASURE_LATENCY == 1
+  std::vector<double> latency_samples_array[kMaxThreads];
+#endif
+
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
   for (long i = 0; i < num_threads; ++i) {
-    pthread_create(&tid[i], NULL, client_thread_func, (void *)i);
+    thread_args[i].thread_id = i;
+#if MEASURE_LATENCY == 1
+    thread_args[i].latency_samples = &latency_samples_array[i];
+#endif
+    pthread_create(&tid[i], NULL, client_thread_func, (void *)&thread_args[i]);
   }
   pthread_barrier_wait(&barrier);
   sleep(running_time * 2);
@@ -171,6 +259,19 @@ void run_client(uint16_t port) {
     pthread_join(tid[i], NULL);
   }
   pthread_barrier_destroy(&barrier);
+
+#if MEASURE_LATENCY == 1
+  // Collect latency samples
+  std::vector<double> all_latency_samples;
+  for (int i = 0; i < num_threads; ++i) {
+    all_latency_samples.insert(all_latency_samples.end(),
+                               latency_samples_array[i].begin(),
+                               latency_samples_array[i].end());
+  }
+
+  // Compute and report latency statistics
+  compute_and_report_latency_statistics(all_latency_samples);
+#endif
 }
 
 void *worker_thread_func(void *arg) {
