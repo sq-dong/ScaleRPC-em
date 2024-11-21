@@ -103,7 +103,6 @@ double get_current_time_in_nanoseconds() {
 
 // Structure to pass arguments to thread functions
 struct ThreadArgs {
-  int thread_id;
   std::vector<double> *latency_samples;
 };
 #else
@@ -113,8 +112,8 @@ struct ThreadArgs {
 #endif
 
 void *client_thread_func(void *arg) {
-  ThreadArgs *args = (ThreadArgs *)arg;
-  int thread_id = args->thread_id;
+  int thread_id = GetThreadID();
+  ThreadArgs *args = (ThreadArgs *)arg;  
 #if MEASURE_LATENCY == 1
   std::vector<double> &latency_samples = *(args->latency_samples);
 #endif
@@ -123,13 +122,9 @@ void *client_thread_func(void *arg) {
 
   std::vector<ResponseRegion> resp_regions;
   int num_clients_this_thread = 0;
-  int qp_node_id = -1;
   for (int i = 0; i < num_clients; ++i) {
     if (thread_id == ctx->get_peer_node_id(i) % num_threads) {
-      if (qp_node_id < 0) {
-        qp_node_id = i;
-      }
-      resp_regions.emplace_back(*ctx, i, qp_node_id, clt_cmsg_depth);
+      resp_regions.emplace_back(*ctx, i, thread_id, clt_cmsg_depth);
       ++num_clients_this_thread;
     }
   }
@@ -245,7 +240,6 @@ void run_client(uint16_t port) {
 
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
   for (long i = 0; i < num_threads; ++i) {
-    thread_args[i].thread_id = i;
 #if MEASURE_LATENCY == 1
     thread_args[i].latency_samples = &latency_samples_array[i];
 #endif
