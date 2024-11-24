@@ -18,7 +18,6 @@
 
 namespace rdmax {
 
-#define MAX_NUM_CLIENTS (1 << 10)
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
 #define WORKER_DEPTH 16
@@ -30,10 +29,20 @@ namespace rdmax {
 #define WORKER_MEMORY_SIZE (1 << 24)
 #define OFFSET(worker_id) (worker_id * WORKER_MEMORY_SIZE)
 #else
+#define NUM_MACHINES 2
+#define NUM_CLIENTS 960
 #define OFFSET(wrk_id, clt_id, slot_idx)                           \
-  ((((wrk_id) * MAX_NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + \
+  ((((wrk_id) * NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + \
     (slot_idx)) *                                                  \
    MSG_SLOT_SIZE)
+#endif
+
+#define MEASURE_LATENCY 1
+#define CONNECTION_GROUPING 0
+#if CONNECTION_GROUPING == 1
+#define CLIENTS_PER_GROUP 160
+#define TIME_PER_GROUP 80  // microseconds
+#define TIME_CHECK_INTERVAL 5
 #endif
 
 // from rpc_types.h in FaSST

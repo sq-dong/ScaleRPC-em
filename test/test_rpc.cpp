@@ -42,8 +42,6 @@
 
 using namespace rdmax;
 
-#define MEASURE_LATENCY 1
-
 int numa_node;
 static const size_t MEM_POOL_SIZE = (1ull << 30);
 static int running_time = 15;
@@ -58,8 +56,10 @@ pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
 static const int dummy_rpc_req_type = 0;
-static const int dummy_rpc_req_size = 32;
-static const int dummy_rpc_resp_size = 32;
+static const int dummy_rpc_req_size =
+    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
+static const int dummy_rpc_resp_size =
+    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
 
 static const int worker_depth = 32;
 static int clt_cmsg_depth = 1;
@@ -113,7 +113,7 @@ struct ThreadArgs {
 
 void *client_thread_func(void *arg) {
   int thread_id = GetThreadID();
-  ThreadArgs *args = (ThreadArgs *)arg;  
+  ThreadArgs *args = (ThreadArgs *)arg;
 #if MEASURE_LATENCY == 1
   std::vector<double> &latency_samples = *(args->latency_samples);
 #endif
@@ -291,6 +291,46 @@ void *worker_thread_func(void *arg) {
   int token = worker_depth;
   size_t cnt = 0;
   pthread_barrier_wait(&barrier);
+
+#if CONNECTION_GROUPING == 1
+  while (!stop_signal) {
+    for (int group_start = 0; group_start < num_clients;
+         group_start += CLIENTS_PER_GROUP) {
+      int group_end = std::min(group_start + CLIENTS_PER_GROUP, num_clients);
+      auto group_start_time = std::chrono::high_resolution_clock::now();
+      uint64_t loop = 0;
+
+      while (true) {
+        for (int clt_i = group_start; clt_i < group_end; ++clt_i) {
+          int num_cmsgs = req_regions[clt_i].poll_req_cmsgs();
+          if (num_cmsgs == 0) {
+            continue;
+          }
+          int num_inner_reqs = req_regions[clt_i].handle_req_cmsgs(num_cmsgs);
+          if (token - num_cmsgs < 0) {
+            assert(ctx->sync() == 0);
+            token = worker_depth;
+          }
+          req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
+          attempts += num_cmsgs;
+          token -= num_cmsgs;
+        }
+        ++loop;
+        if (loop >= TIME_CHECK_INTERVAL) {
+          loop = 0;
+          auto now_time = std::chrono::high_resolution_clock::now();
+          int64_t period =
+              std::chrono::duration_cast<std::chrono::microseconds>(
+                  now_time - group_start_time)
+                  .count();
+          if (period >= TIME_PER_GROUP) {
+            break;
+          }
+        }
+      }
+    }
+  }
+#else
   while (!stop_signal) {
 #ifdef MEMORY_MULTIPLEXING
     {
@@ -314,6 +354,8 @@ void *worker_thread_func(void *arg) {
       token -= num_cmsgs;
     }
   }
+#endif
+
   pthread_barrier_wait(&barrier);
   total_attempts.fetch_add(attempts);
   return NULL;
@@ -391,12 +433,18 @@ int main(int argc, char **argv) {
     num_threads = atoi(argv[1]);
     // @num_clients clients to connect
     num_clients = atoi(argv[2]);
+#ifndef MEMORY_MULTIPLEXING
+    assert(num_clients == NUM_CLIENTS);
+#endif
     run_server(client_machine_list, port);
   } else if (argc == 4) {
     // @num_threads threads to emulate clients
     num_threads = atoi(argv[1]);
     // @num_clients clients to be emulated
     num_clients = atoi(argv[2]);
+#ifndef MEMORY_MULTIPLEXING
+    assert(num_clients == NUM_CLIENTS / NUM_MACHINES);
+#endif
     // @clt_cmsg_depth RPC requests to be posted by each client
     clt_cmsg_depth = atoi(argv[3]);
     run_client(port);
