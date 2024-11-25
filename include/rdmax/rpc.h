@@ -18,27 +18,29 @@
 
 namespace rdmax {
 
+#define QP_MULTIPLEXING 1
+#define MEMORY_MULTIPLEXING 1
+#define MEASURE_LATENCY 1
+#define CONNECTION_GROUPING 0
+
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
 #define WORKER_DEPTH 16
 #define WORKER_WINDOW_SIZE \
   8  // a client has @WORKER_WINDOW_SIZE slots in a worker's request region
 
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
 #define DEFUALT_WINDOW_SIZE 256  // slot
 #define WORKER_MEMORY_SIZE (1 << 24)
 #define OFFSET(worker_id) (worker_id * WORKER_MEMORY_SIZE)
 #else
 #define NUM_MACHINES 2
 #define NUM_CLIENTS 960
-#define OFFSET(wrk_id, clt_id, slot_idx)                           \
-  ((((wrk_id) * NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + \
-    (slot_idx)) *                                                  \
+#define OFFSET(wrk_id, clt_id, slot_idx)                                     \
+  ((((wrk_id) * NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + (slot_idx)) * \
    MSG_SLOT_SIZE)
 #endif
 
-#define MEASURE_LATENCY 1
-#define CONNECTION_GROUPING 0
 #if CONNECTION_GROUPING == 1
 #define CLIENTS_PER_GROUP 160
 #define TIME_PER_GROUP 80  // microseconds
@@ -93,7 +95,7 @@ class RequestRegion {
   int poll_req_cmsgs();
   int handle_req_cmsgs(int num_cmsgs);
   int post_resp_cmsgs(int num_cmsgs);
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
   void checkout_new_window();
 #endif
 
@@ -108,7 +110,7 @@ class RequestRegion {
     node_t clt_id;
     uint64_t resp_offset;
   } targets_[WORKER_DEPTH];
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
   uint32_t index_base_;
   uint16_t new_window_size_;
 #endif
@@ -135,7 +137,7 @@ class ResponseRegion {
   RpcNode &node_;
   uint8_t *addr_;
   uint64_t offset_;  // offset from the beginning of the response region
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
   uint32_t head_[MAX_NUM_WORKERS];
 #endif
   uint32_t num_cmsg_to_post_;

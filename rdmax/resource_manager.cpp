@@ -32,6 +32,7 @@
 
 #include "rdmax/resource_manager.h"
 #include "rdmax/mapping.h"
+#include "rdmax/rpc.h"  // for QP_MULTIPLEXING/MEMORY_MULTIPLEXING
 
 namespace rdmax {
     ResourceManager::ResourceManager() : max_node_id_(-1) {
@@ -397,7 +398,7 @@ namespace rdmax {
         if (!node.qp_size) {
             is_initiator = true;    // initiator calls send_local_info before receive_peer_info
             assert(qp_size > 0);
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
             node.qp_size = qp_size + 1;
 #else 
             node.qp_size = qp_size;
@@ -407,7 +408,7 @@ namespace rdmax {
                 node.qp_list[i] = nullptr;
             }
             for (int i = 0; i < node.qp_size; ++i) {
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
                 if (i == node.qp_size - 1) {
                     // create a normal QP that is not used in the local node
                     node.qp_list[i] = allocate_queue_pair(-1);
@@ -444,7 +445,7 @@ namespace rdmax {
 
         memset(&msg, 0, msg_size);
         msg.is_from_initiator = is_initiator ? 1 : 0;
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
         msg.use_qp_multiplexing = 1;
 #else
         msg.use_qp_multiplexing = 0;
@@ -500,7 +501,7 @@ namespace rdmax {
                 if (msg.qp_num[i] == 0) {
                     continue;
                 }
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
                 if (i == node.qp_size - 1) {
                     node.qp_list[i] = allocate_queue_pair((&node - node_list_) % (node.qp_size - 1));   // each machine could have different threads
                 } else {

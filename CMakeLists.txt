@@ -1,20 +1,21 @@
 cmake_minimum_required(VERSION 3.16)
 project(sds CXX ASM)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-O3")
+set(FASST_PATH ${CMAKE_SOURCE_DIR}/fasst)
 
-include_directories(include)
+include_directories(include fasst)
 
-option(QP_MULTIPLEXING "Enable QP Multiplexing" OFF)
-option(MEMORY_MULTIPLEXING "Enable Memory Multiplexing" OFF)
+# option(QP_MULTIPLEXING "Enable QP Multiplexing" OFF)
+# option(MEMORY_MULTIPLEXING "Enable Memory Multiplexing" OFF)
 
-if(QP_MULTIPLEXING OR MEMORY_MULTIPLEXING)
-    add_compile_definitions(
-        $<$<BOOL:${QP_MULTIPLEXING}>:QP_MULTIPLEXING>
-        $<$<BOOL:${MEMORY_MULTIPLEXING}>:MEMORY_MULTIPLEXING>
-    )
-endif()
+# if(QP_MULTIPLEXING OR MEMORY_MULTIPLEXING)
+#     add_compile_definitions(
+#         $<$<BOOL:${QP_MULTIPLEXING}>:QP_MULTIPLEXING>
+#         $<$<BOOL:${MEMORY_MULTIPLEXING}>:MEMORY_MULTIPLEXING>
+#     )
+# endif()
 
 add_subdirectory(util)
 add_subdirectory(smart)

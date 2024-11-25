@@ -74,7 +74,7 @@ int RpcNode::add_request(ibv_wr_opcode opcode, const void *local,
   }
 
   node_t _target_node = remote.node;
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
   if (!is_client_) {
     remote_va = (remote_va & 0xFFC0FFFFFFFFFFFF) |
                 ((uintptr_t)((thread_id) & 0x3F) << 48);
@@ -83,7 +83,7 @@ int RpcNode::add_request(ibv_wr_opcode opcode, const void *local,
 #endif
 
   if (req_buf.size && req_buf.remote_node_id != _target_node) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     if (!is_client_) {
       if (post_request()) {
         return -1;
@@ -180,7 +180,7 @@ int RpcNode::post_request() {
   int qp_idx;
   int qp_size = manager_.get_qp_size(req_buf.remote_node_id);
 
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
   if (is_client_) {
     // index starts from 0; use the last which is a normal QP
     qp_idx = qp_size - 1;
@@ -237,7 +237,7 @@ int RpcNode::poll_once(node_t remote_node_id, bool notify) {
   int qp_idx;
   int qp_size = manager_.get_qp_size(remote_node_id);
 
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
   if (is_client_) {
     // index starts from 0; use the last which is a normal QP
     qp_idx = qp_size - 1;
@@ -323,7 +323,7 @@ RequestRegion::RequestRegion(class RpcNode &node, node_t wrk_id, node_t clt_id)
     : node_(node), wrk_id_(wrk_id) {
   head_ = 0;
   tail_ = 0;
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
   addr_ = (uint8_t *)node.get_cache_addr() + OFFSET(wrk_id);
   assert(((uintptr_t)addr_ & (WORKER_MEMORY_SIZE - 1)) == 0);
   index_base_ = 0;
@@ -365,7 +365,7 @@ void RequestRegion::register_rpc_handler(
 int RequestRegion::poll_req_cmsgs() {
   int cmsg_i = 0;
   for (; cmsg_i < WORKER_DEPTH; ++cmsg_i) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     uint8_t *slot = addr_ + (((head_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE +
                              index_base_ * MSG_SLOT_SIZE) %
                                 WORKER_MEMORY_SIZE;
@@ -379,7 +379,7 @@ int RequestRegion::poll_req_cmsgs() {
   }
   if (cmsg_i > 0) {
     head_ = (head_ + cmsg_i) % window_size_;
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     uint8_t *slot =
         addr_ + (((head_ + window_size_ - 1) % window_size_) * MSG_SLOT_SIZE +
                  index_base_ * MSG_SLOT_SIZE) %
@@ -395,7 +395,7 @@ int RequestRegion::handle_req_cmsgs(int num_cmsgs) {
   int num_inner_reqs = 0;
 
   for (int cmsg_i = 0; cmsg_i < num_cmsgs; ++cmsg_i) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     uint8_t *slot = addr_ + (((tail_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE +
                              index_base_ * MSG_SLOT_SIZE) %
                                 WORKER_MEMORY_SIZE;
@@ -441,7 +441,7 @@ int RequestRegion::handle_req_cmsgs(int num_cmsgs) {
 int RequestRegion::post_resp_cmsgs(int num_cmsgs) {
   int rc = 0;
   for (int cmsg_i = 0; cmsg_i < num_cmsgs; ++cmsg_i) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     uint8_t *slot = addr_ + (((tail_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE +
                              index_base_ * MSG_SLOT_SIZE) %
                                 WORKER_MEMORY_SIZE;
@@ -461,7 +461,7 @@ int RequestRegion::post_resp_cmsgs(int num_cmsgs) {
   return num_cmsgs;
 }
 
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
 void RequestRegion::checkout_new_window() {
   if (window_size_ != new_window_size_) {
     index_base_ =
@@ -484,7 +484,7 @@ ResponseRegion::ResponseRegion(class RpcNode &node, node_t local_node_id,
   offset_ = local_node_id * MSG_SLOT_SIZE * max_clt_cmsg_depth;
   addr_ = (uint8_t *)node.get_cache_addr() + offset_;
   num_cmsg_to_post_ = 0;
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
   memset(head_, 0, sizeof(head_[0]) * MAX_NUM_WORKERS);
 #endif
   memset(target_wrks_, -1, sizeof(target_wrks_[0]) * WORKER_WINDOW_SIZE);
@@ -508,7 +508,7 @@ int ResponseRegion::post_req_cmsgs() {
   node_.poll_once(qp_node_id_);
   int num_cmsg_posted = 0;
   for (int req_cmsg_i = 0; req_cmsg_i < num_cmsg_to_post_; ++req_cmsg_i) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     uint64_t offset = OFFSET(target_wrks_[req_cmsg_i]);
 #else
     uint64_t offset = OFFSET(target_wrks_[req_cmsg_i], global_clt_id_,

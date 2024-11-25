@@ -38,6 +38,7 @@
 
 #include "config.h"
 #include "global_address.h"
+#include "rdmax.h"
 
 namespace sds {
     const static int MR_FULL_PERMISSION = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |

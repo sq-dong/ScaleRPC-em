@@ -238,7 +238,7 @@ namespace sds {
             return -1;
         }
 
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
         remote_va = (remote_va & 0xFFC0FFFFFFFFFFFF) | ((uintptr_t)((thread_id) & 0x3F) << 48);
 #endif
 

@@ -275,7 +275,7 @@ void *worker_thread_func(void *arg) {
   BindCoreNuma(wrk_id, numa_node);
   std::vector<RequestRegion> req_regions;
 
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
   req_regions.emplace_back(*ctx, wrk_id, 0);
   req_regions[0].register_rpc_handler(dummy_rpc_req_type, dummy_rpc_handler,
                                       nullptr);
@@ -332,7 +332,7 @@ void *worker_thread_func(void *arg) {
   }
 #else
   while (!stop_signal) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     {
 #else
     for (clt_i = 0; clt_i < num_clients; ++clt_i) {
@@ -347,7 +347,7 @@ void *worker_thread_func(void *arg) {
         token = worker_depth;
       }
       req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
       req_regions[clt_i].checkout_new_window();
 #endif
       attempts += num_cmsgs;
@@ -433,7 +433,7 @@ int main(int argc, char **argv) {
     num_threads = atoi(argv[1]);
     // @num_clients clients to connect
     num_clients = atoi(argv[2]);
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
     assert(num_clients == NUM_CLIENTS);
 #endif
     run_server(client_machine_list, port);
@@ -442,7 +442,7 @@ int main(int argc, char **argv) {
     num_threads = atoi(argv[1]);
     // @num_clients clients to be emulated
     num_clients = atoi(argv[2]);
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
     assert(num_clients == NUM_CLIENTS / NUM_MACHINES);
 #endif
     // @clt_cmsg_depth RPC requests to be posted by each client

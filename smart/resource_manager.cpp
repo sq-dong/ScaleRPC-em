@@ -402,7 +402,7 @@ namespace sds {
                 node.qp_list[i] = nullptr;
             }
             for (int i = 0; i < node.qp_size; ++i) {
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
                 node.qp_list[i] = !is_first_node ? node_list_[0].qp_list[i] : allocate_queue_pair(i);
 #else
                 node.qp_list[i] = allocate_queue_pair(i);
@@ -415,7 +415,7 @@ namespace sds {
 
         memset(&msg, 0, msg_size);
         msg.is_from_initiator = is_initiator ? 1 : 0;
-#ifdef QP_MULTIPLEXING
+#if QP_MULTIPLEXING == 1
         msg.use_qp_multiplexing = 1;
 #else
         msg.use_qp_multiplexing = 0;
