@@ -30,6 +30,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <boost/bind.hpp>
+#include <boost/coroutine/all.hpp>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -41,6 +43,13 @@
 #include "rdmax/thread.h"
 
 using namespace rdmax;
+using namespace boost::coroutines;
+
+// Define the coroutine typedefs
+typedef boost::coroutines::symmetric_coroutine<void> symmetric_coroutine_t;
+typedef symmetric_coroutine_t::call_type coro_call_t;
+typedef symmetric_coroutine_t::yield_type coro_yield_t;
+typedef int coro_id_t;
 
 int numa_node;
 static const size_t MEM_POOL_SIZE = (1ull << 30);
@@ -111,6 +120,52 @@ struct ThreadArgs {
 };
 #endif
 
+void client_coroutine_function(coro_id_t id,
+                               std::vector<ResponseRegion> &resp_regions,
+#if MEASURE_LATENCY == 1
+                               ThreadArgs *args,
+#endif
+                               coro_yield_t &yield) {
+  ResponseRegion &resp_region = resp_regions[id];
+#if MEASURE_LATENCY == 1
+  double start_time = 0.0;
+  const int sample_interval = 10000000 / num_clients;
+  size_t cnt = 0;
+  std::vector<double> &latency_samples = *(args->latency_samples);
+#endif
+
+  while (!stop_signal) {
+#if MEASURE_LATENCY == 1
+    if (cnt == sample_interval) {
+      double end_time = get_current_time_in_nanoseconds();
+      double latency = end_time - start_time;
+      latency_samples.push_back(latency);
+      cnt = 0;
+    }
+#endif
+    // Prepare and post new requests for this client
+    for (int j = 0; j < clt_cmsg_depth; ++j) {
+      rpc_cmsg_t *req_cmsg = resp_region.start_req_cmsg(
+          dummy_rpc_req_type,
+          get_worker_id(resp_region.global_client_id(), num_threads));
+      add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
+    }
+    int num_reqs_posted = resp_region.post_req_cmsgs();
+#if MEASURE_LATENCY == 1
+    ++cnt;
+    if (cnt == sample_interval) {
+      start_time = get_current_time_in_nanoseconds();
+    }
+#endif
+    // Yield control back to the main loop
+    yield();
+
+    while (!resp_region.check_resp_cmsg(clt_cmsg_depth - 1)) {
+      yield();
+    }
+  }
+}
+
 void *client_thread_func(void *arg) {
   int thread_id = GetThreadID();
   ThreadArgs *args = (ThreadArgs *)arg;
@@ -129,54 +184,38 @@ void *client_thread_func(void *arg) {
     }
   }
 
+  // Create a vector to store coroutines
+  std::vector<coro_call_t *> coroutines;
+
+  // Initialize coroutines for each client
+  for (int i = 0; i < num_clients_this_thread; ++i) {
+    coro_call_t *coroutine = new coro_call_t(
+        boost::bind(&client_coroutine_function,
+                    i,  // coro_id_t id
+                    boost::ref(resp_regions),
 #if MEASURE_LATENCY == 1
-  double start_time = 0.0;
-  const int sample_interval = 500000 / num_clients;
-  size_t cnt = 0;
+                    args,
 #endif
+                    _1));  // _1 is the placeholder for coro_yield_t&
+    coroutines.push_back(coroutine);
+  }
 
   pthread_barrier_wait(&barrier);
-  for (int i = 0; i < num_clients_this_thread; ++i) {
-    for (int j = 0; j < clt_cmsg_depth; ++j) {
-      rpc_cmsg_t *req_cmsg = resp_regions[i].start_req_cmsg(
-          dummy_rpc_req_type,
-          get_worker_id(resp_regions[i].global_client_id(), num_threads));
-      add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
-    }
-    int num_reqs_posted = resp_regions[i].post_req_cmsgs();
-  }
 
+  // Main loop to resume coroutines
   while (!stop_signal) {
-    for (int i = 0; i < num_clients_this_thread; ++i) {
-      if (!resp_regions[i].check_resp_cmsg(clt_cmsg_depth - 1)) {
-        continue;
+    for (auto &coroutine : coroutines) {
+      if (*coroutine) {
+        (*coroutine)();
       }
-#if MEASURE_LATENCY == 1
-      if (i == 0 && cnt == sample_interval) {
-        double end_time = get_current_time_in_nanoseconds();
-        double latency = end_time - start_time;
-        latency_samples.push_back(latency);
-        cnt = 0;
-      }
-#endif
-      for (int j = 0; j < clt_cmsg_depth; ++j) {
-        rpc_cmsg_t *req_cmsg = resp_regions[i].start_req_cmsg(
-            dummy_rpc_req_type,
-            get_worker_id(resp_regions[i].global_client_id(), num_threads));
-        add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
-      }
-      int num_reqs_posted = resp_regions[i].post_req_cmsgs();
-
-#if MEASURE_LATENCY == 1
-      if (i == 0) {
-        ++cnt;
-        if (cnt == sample_interval) {
-          start_time = get_current_time_in_nanoseconds();
-        }
-      }
-#endif
     }
   }
+
+  // Clean up coroutines
+  for (auto &coroutine : coroutines) {
+    delete coroutine;
+  }
+
   pthread_barrier_wait(&barrier);
   return NULL;
 }
@@ -275,7 +314,7 @@ void *worker_thread_func(void *arg) {
   BindCoreNuma(wrk_id, numa_node);
   std::vector<RequestRegion> req_regions;
 
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
   req_regions.emplace_back(*ctx, wrk_id, 0);
   req_regions[0].register_rpc_handler(dummy_rpc_req_type, dummy_rpc_handler,
                                       nullptr);
@@ -332,7 +371,7 @@ void *worker_thread_func(void *arg) {
   }
 #else
   while (!stop_signal) {
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
     {
 #else
     for (clt_i = 0; clt_i < num_clients; ++clt_i) {
@@ -347,7 +386,7 @@ void *worker_thread_func(void *arg) {
         token = worker_depth;
       }
       req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
-#ifdef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 1
       req_regions[clt_i].checkout_new_window();
 #endif
       attempts += num_cmsgs;
@@ -433,7 +472,7 @@ int main(int argc, char **argv) {
     num_threads = atoi(argv[1]);
     // @num_clients clients to connect
     num_clients = atoi(argv[2]);
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
     assert(num_clients == NUM_CLIENTS);
 #endif
     run_server(client_machine_list, port);
@@ -442,7 +481,7 @@ int main(int argc, char **argv) {
     num_threads = atoi(argv[1]);
     // @num_clients clients to be emulated
     num_clients = atoi(argv[2]);
-#ifndef MEMORY_MULTIPLEXING
+#if MEMORY_MULTIPLEXING == 0
     assert(num_clients == NUM_CLIENTS / NUM_MACHINES);
 #endif
     // @clt_cmsg_depth RPC requests to be posted by each client
