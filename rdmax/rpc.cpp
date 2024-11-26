@@ -490,8 +490,7 @@ ResponseRegion::ResponseRegion(class RpcNode &node, node_t local_node_id,
   memset(target_wrks_, -1, sizeof(target_wrks_[0]) * WORKER_WINDOW_SIZE);
 }
 
-rpc_cmsg_t *ResponseRegion::start_req_cmsg(rpc_reqtype_t req_type,
-                                           node_t wrk_id) {
+rpc_cmsg_t *ResponseRegion::start_req_cmsg(node_t wrk_id) {
   rpc_cmsg_t *req_cmsg =
       (rpc_cmsg_t *)(addr_ + num_cmsg_to_post_ * MSG_SLOT_SIZE);
   req_cmsg->magic = RPC_REQ_MAGIC;
@@ -502,6 +501,18 @@ rpc_cmsg_t *ResponseRegion::start_req_cmsg(rpc_reqtype_t req_type,
   target_wrks_[num_cmsg_to_post_] = wrk_id;
   ++num_cmsg_to_post_;
   return req_cmsg;
+}
+
+rpc_inner_msg_t *ResponseRegion::start_inner_msg(rpc_cmsg_t *cmsg,
+                                                 rpc_reqtype_t req_type,
+                                                 int size) {
+  rpc_inner_msg_t *inner_msg =
+      (rpc_inner_msg_t *)((uint8_t *)cmsg + cmsg->cmsg_len);
+  inner_msg->req_type = req_type;
+  inner_msg->data_len = size;
+  cmsg->num_inner_msgs++;
+  cmsg->cmsg_len += sizeof(rpc_inner_msg_t) + size;
+  return inner_msg;
 }
 
 int ResponseRegion::post_req_cmsgs() {

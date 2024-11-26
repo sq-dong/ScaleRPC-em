@@ -82,17 +82,6 @@ size_t dummy_rpc_handler(uint8_t *resp_buf, rpc_resptype_t *resp_type,
   return dummy_rpc_resp_size;
 }
 
-void add_dummy_rpc_req(rpc_cmsg_t *req_cmsg, int num_reqs) {
-  for (int req_i = 0; req_i < num_reqs; ++req_i) {
-    rpc_inner_msg_t *req =
-        (rpc_inner_msg_t *)((uint8_t *)req_cmsg + req_cmsg->cmsg_len);
-    req->req_type = dummy_rpc_req_type;
-    req->data_len = dummy_rpc_req_size;
-    req_cmsg->cmsg_len += sizeof(rpc_inner_msg_t) + req->data_len;
-    ++req_cmsg->num_inner_msgs;
-  }
-}
-
 void report(uint64_t elapsed_time) {
   auto throughput = total_attempts / elapsed_time / 1000000.0;
   SDS_INFO(
@@ -137,9 +126,11 @@ void client_coroutine_function(coro_id_t id,
   while (!stop_signal) {
     for (int j = 0; j < clt_cmsg_depth; ++j) {
       rpc_cmsg_t *req_cmsg = resp_region.start_req_cmsg(
-          dummy_rpc_req_type,
           get_worker_id(resp_region.global_client_id(), num_threads));
-      add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
+      for (int i = 0; i < clt_inner_req_depth; ++i) {
+        rpc_inner_msg_t *inner_msg = resp_region.start_inner_msg(
+            req_cmsg, dummy_rpc_req_type, dummy_rpc_req_size);
+      }
     }
     resp_region.post_req_cmsgs();
 
