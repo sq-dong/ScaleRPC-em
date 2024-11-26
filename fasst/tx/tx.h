@@ -71,6 +71,12 @@ class Tx {
     yield();
   }
 
+  forceinline void tx_wait_till_ready(coro_yield_t &yield, int num_resps) {
+    while (!rpc->check_resp_cmsg(num_resps - 1)) {
+      tx_yield(yield);
+    }
+  }
+
   /* tx_lockserver.h */
   // forceinline bool send_lockserver_req(coro_yield_t &yield,
   //                                      locksrv_reqtype_t req_type);

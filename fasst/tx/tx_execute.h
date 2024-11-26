@@ -63,8 +63,8 @@ forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
 
   tx_dassert(req_i > 0 && req_i <= WORKER_WINDOW_SIZE);
 
-  rpc->post_req_cmsgs();
-  tx_yield(yield);
+  int posted = rpc->post_req_cmsgs();
+  tx_wait_till_ready(yield, posted);
 
   req_i = 0;
 

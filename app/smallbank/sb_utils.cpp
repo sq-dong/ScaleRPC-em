@@ -5,17 +5,17 @@
 
 /* Called by main. Only initialize here. The worker threads will populate. */
 void SB::init_all_tables() {
-  printf("main: Initializing SmallBank tables (%d replicas)\n", num_replicas);
+  // printf("main: Initializing SmallBank tables (%d replicas)\n", num_replicas);
 
   for (int repl_i = 0; repl_i < num_replicas; repl_i++) {
     saving_table[repl_i] =
-        ds_fixedtable_init("sb_json/saving.json", sizeof(sb_sav_val_t),
+        ds_fixedtable_init(ROOT_DIR "/config/sb_json/saving.json", sizeof(sb_sav_val_t),
                            SAVING_BASE_SHM_KEY + repl_i, repl_i == 0);
   }
 
   for (int repl_i = 0; repl_i < num_replicas; repl_i++) {
     checking_table[repl_i] =
-        ds_fixedtable_init("sb_json/checking.json", sizeof(sb_chk_val_t),
+        ds_fixedtable_init(ROOT_DIR "/config/sb_json/checking.json", sizeof(sb_chk_val_t),
                            CHECKING_BASE_SHM_KEY + repl_i, repl_i == 0);
   }
 }

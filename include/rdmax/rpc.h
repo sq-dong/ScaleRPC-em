@@ -18,8 +18,8 @@
 
 namespace rdmax {
 
-#define QP_MULTIPLEXING 1
-#define MEMORY_MULTIPLEXING 1
+#define QP_MULTIPLEXING 0
+#define MEMORY_MULTIPLEXING 0
 #define MEASURE_LATENCY 1
 #define CONNECTION_GROUPING 0
 
@@ -35,7 +35,7 @@ namespace rdmax {
 #define OFFSET(worker_id) (worker_id * WORKER_MEMORY_SIZE)
 #else
 #define NUM_MACHINES 2
-#define NUM_CLIENTS 960
+#define NUM_CLIENTS 2
 #define OFFSET(wrk_id, clt_id, slot_idx)                                     \
   ((((wrk_id) * NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + (slot_idx)) * \
    MSG_SLOT_SIZE)

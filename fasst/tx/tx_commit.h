@@ -54,8 +54,8 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
   }
 
   //   tx_dassert(req_i <= WORKER_WINDOW_SIZE);
-  rpc->post_req_cmsgs();
-  tx_yield(yield);
+  int posted = rpc->post_req_cmsgs();
+  tx_wait_till_ready(yield, posted);
 
   /* Check the responses */
   rpc_cmsg_t *resp_cmsg = rpc->get_resp_cmsg(0);
@@ -207,8 +207,8 @@ forceinline void Tx::abort(coro_yield_t &yield) {
     return;
   }
 
-  rpc->post_req_cmsgs();
-  tx_yield(yield);
+  int posted = rpc->post_req_cmsgs();
+  tx_wait_till_ready(yield, posted);
 
   req_i = 0;
 
@@ -254,8 +254,8 @@ bool Tx::validate(coro_yield_t &yield) {
                              item.keyhash, ds_reqtype_t::get_rdonly);
   }
 
-  rpc->post_req_cmsgs();
-  tx_yield(yield);
+  int posted = rpc->post_req_cmsgs();
+  tx_wait_till_ready(yield, posted);
 
   // Check the response.
   // The loop below may only return false; true can be returned only after

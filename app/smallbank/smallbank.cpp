@@ -590,7 +590,6 @@ void run_client(uint16_t port) {
     usleep(100000);  // sleep for 0.1 seconds
   }
   rpc_client->stop();
-  SDS_INFO("client machine get ready");
 
   ThreadArgs thread_args[kMaxThreads];
 #if MEASURE_LATENCY == 1
@@ -607,6 +606,7 @@ void run_client(uint16_t port) {
     pthread_create(&tid[i], NULL, client_thread_func, (void *)&thread_args[i]);
   }
   pthread_barrier_wait(&barrier);
+  SDS_INFO("client machine starts running");
   sleep(running_time * 2);
   stop_signal = 1;
   pthread_barrier_wait(&barrier);
@@ -745,7 +745,7 @@ void run_server(const std::vector<std::string> &client_machine_list,
   connect_time = (end_tv.tv_sec - start_tv.tv_sec) * 1000.0 +
                  (end_tv.tv_usec - start_tv.tv_usec) / 1000.0;
 
-  sb = new SB(1, num_clients, 1);
+  sb = new SB(1, num_threads, 1);
   sb->init_all_tables();
 
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
@@ -753,6 +753,7 @@ void run_server(const std::vector<std::string> &client_machine_list,
     pthread_create(&tid[i], NULL, worker_thread_func, (void *)nullptr);
   }
   pthread_barrier_wait(&barrier);
+  SDS_INFO("server machine starts running");
   gettimeofday(&start_tv, NULL);
   sleep(running_time);
   stop_signal = 1;
@@ -773,9 +774,9 @@ void run_server(const std::vector<std::string> &client_machine_list,
 }
 
 int main(int argc, char **argv) {
-  const char *env_path = getenv("TEST_RPC_CONF");
+  const char *env_path = getenv("SMALLBANK_CONF");
   JsonConfig config = JsonConfig::load_file(
-      env_path ? env_path : ROOT_DIR "/config/test_rpc.json");
+      env_path ? env_path : ROOT_DIR "/config/smallbank.json");
   int port = (int)config.get("port").get_int64();
   dump_file_path = config.get("dump_file_path").get_str();
   if (getenv("DUMP_FILE_PATH")) {
@@ -784,7 +785,7 @@ int main(int argc, char **argv) {
   if (getenv("DUMP_PREFIX")) {
     dump_prefix = std::string(getenv("DUMP_PREFIX"));
   } else {
-    dump_prefix = "test_rpc";
+    dump_prefix = "smallbank";
   }
   numa_node = (int)config.get("numa_node").get_int64();
   if (argc == 3) {

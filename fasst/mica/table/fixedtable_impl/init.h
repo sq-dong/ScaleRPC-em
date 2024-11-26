@@ -46,8 +46,9 @@ FixedTable<StaticConfig>::FixedTable(const ::mica::util::Config& config,
 
     // TODO: Extend num_extra_buckets_ to meet shm_size.
 
-    buckets_ = reinterpret_cast<Bucket*>(alloc->hrd_malloc_socket(bkt_shm_key,
-        shm_size, numa_node));	// Zeroes out per-bucket timestamps
+    // buckets_ = reinterpret_cast<Bucket*>(alloc->hrd_malloc_socket(bkt_shm_key,
+    //     shm_size, numa_node));	// Zeroes out per-bucket timestamps
+    buckets_ = reinterpret_cast<Bucket*>(mmap_huge_page(shm_size));
     assert(buckets_ != NULL);
   }
 
