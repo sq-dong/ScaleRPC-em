@@ -22,3 +22,4 @@ add_subdirectory(smart)
 add_subdirectory(rdmax)
 
 add_subdirectory(test)
+add_subdirectory(app/smallbank)

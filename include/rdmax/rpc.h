@@ -51,6 +51,7 @@ namespace rdmax {
 #define RPC_MIN_REQ_TYPE 0   /* Minimum type for requests */
 #define RPC_MAX_REQ_TYPE 255 /* Maximum type for requests */
 #define RPC_IS_VALID_TYPE(x) (x >= RPC_MIN_REQ_TYPE && x <= RPC_MAX_REQ_TYPE)
+#define RPC_PRIMARY_DS_REQ_SPACING 10
 
 // from rpc_defs.h in FaSST
 typedef uint8_t rpc_reqtype_t;
@@ -128,9 +129,12 @@ class ResponseRegion {
  public:
   ResponseRegion(class RpcNode &node, node_t local_node_id, node_t qp_node_id,
                  int max_clt_cmsg_depth);
-  rpc_cmsg_t *start_req_cmsg(rpc_reqtype_t req_type, node_t wrk_id);
+  rpc_cmsg_t *start_req_cmsg(node_t wrk_id);
+  rpc_inner_msg_t *start_inner_msg(rpc_cmsg_t *cmsg, rpc_reqtype_t req_type,
+                                   int size);
   int post_req_cmsgs();
   bool check_resp_cmsg(int resp_i);
+  rpc_cmsg_t *get_resp_cmsg(int index);
   node_t global_client_id() { return global_clt_id_; };
 
  private:

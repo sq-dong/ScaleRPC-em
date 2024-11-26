@@ -38,9 +38,12 @@
 #include <random>
 #include <vector>
 
+#include "logger/logger.h"
 #include "rdmax/mapping.h"
 #include "rdmax/rpc.h"
 #include "rdmax/thread.h"
+#include "sb.h"
+#include "tx/tx.h"
 
 using namespace rdmax;
 using namespace boost::coroutines;
@@ -64,34 +67,19 @@ std::atomic<uint64_t> total_attempts(0);
 pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
-static const int dummy_rpc_req_type = 0;
-static const int dummy_rpc_req_size =
-    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
-static const int dummy_rpc_resp_size =
-    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
+SB *sb;
+__thread Mappings *mappings;
+__thread Logger *logger;
+__thread sb_txn_type_t *workgen_arr;
+__thread uint64_t tg_seed = 0xdeadbeef;       /* Thread-global random seed */
+__thread long long stat_tx_attempted_tot = 0; /* Collected in non-debug */
+__thread long long stat_tx_committed_tot = 0; /* Collected in non-debug */
+__thread long long stat_tx_attempted[SB_TXN_TYPES];
+__thread long long stat_tx_committed[SB_TXN_TYPES];
 
 static const int worker_depth = 32;
 static int clt_cmsg_depth = 1;
 static int clt_inner_req_depth = 1;
-
-size_t dummy_rpc_handler(uint8_t *resp_buf, rpc_resptype_t *resp_type,
-                         const uint8_t *req_buf, size_t req_len, void *arg) {
-  assert(resp_buf != NULL && req_buf != NULL && req_len == dummy_rpc_req_size);
-  (void)(arg);
-
-  return dummy_rpc_resp_size;
-}
-
-void add_dummy_rpc_req(rpc_cmsg_t *req_cmsg, int num_reqs) {
-  for (int req_i = 0; req_i < num_reqs; ++req_i) {
-    rpc_inner_msg_t *req =
-        (rpc_inner_msg_t *)((uint8_t *)req_cmsg + req_cmsg->cmsg_len);
-    req->req_type = dummy_rpc_req_type;
-    req->data_len = dummy_rpc_req_size;
-    req_cmsg->cmsg_len += sizeof(rpc_inner_msg_t) + req->data_len;
-    ++req_cmsg->num_inner_msgs;
-  }
-}
 
 void report(uint64_t elapsed_time) {
   auto throughput = total_attempts / elapsed_time / 1000000.0;
@@ -120,13 +108,328 @@ struct ThreadArgs {
 };
 #endif
 
-void client_coroutine_function(coro_id_t id,
+void txn_amalgamate(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::amalgamate;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters */
+  uint64_t acct_id_0, acct_id_1;
+  sb->get_two_accounts(&tg_seed, &acct_id_0, &acct_id_1);
+
+  /* Read from savings and checking tables for acct_id_0 */
+  hots_obj_t sav_obj_0;
+  sb_sav_key_t sav_key_0;
+  sav_key_0.acct_id = acct_id_0;
+  tx->add_to_write_set(RPC_SAVING_REQ, sav_key_0.hots_key, &sav_obj_0,
+                       tx_write_mode_t::update);
+
+  hots_obj_t chk_obj_0;
+  sb_chk_key_t chk_key_0;
+  chk_key_0.acct_id = acct_id_0;
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key_0.hots_key, &chk_obj_0,
+                       tx_write_mode_t::update);
+
+  /* Read from checking account for acct_id_1 */
+  hots_obj_t chk_obj_1;
+  sb_chk_key_t chk_key_1;
+  chk_key_1.acct_id = acct_id_1;
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key_1.hots_key, &chk_obj_1,
+                       tx_write_mode_t::update);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+
+  sb_dassert(ex_result == tx_status_t::in_progress ||
+             ex_result == tx_status_t::must_abort); /* Found or locked */
+
+  if (ex_result == tx_status_t::must_abort) {
+    tx->abort(yield);
+    return;
+  }
+
+  /* If we are here, execution succeeded and we have locks */
+  sb_sav_val_t *sav_val_0 = (sb_sav_val_t *)sav_obj_0.val;
+  sb_chk_val_t *chk_val_0 = (sb_chk_val_t *)chk_obj_0.val;
+  sb_chk_val_t *chk_val_1 = (sb_chk_val_t *)chk_obj_1.val;
+  sb_dassert(sav_val_0->magic == sb_sav_magic);
+  sb_dassert(chk_val_0->magic == sb_chk_magic);
+  sb_dassert(chk_val_1->magic == sb_chk_magic);
+
+  /* Increase acct_id_1's balance and set acct_id_0's balances to 0 */
+  chk_val_1->bal += (sav_val_0->bal + chk_val_0->bal);
+
+  sav_val_0->bal = 0;
+  chk_val_0->bal = 0;
+
+  tx_status_t commit_status = tx->commit(yield);
+  _unused(commit_status);
+
+  /* if we managed to lock the records, the txn must commit */
+  sb_dassert(commit_status == tx_status_t::committed);
+
+  stat_tx_committed_tot++;
+  sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+}
+
+/* Calculate the sum of saving and checking balance */
+void txn_balance(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::balance;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters */
+  uint64_t acct_id;
+  sb->get_account(&tg_seed, &acct_id);
+
+  /* Read from savings and checking tables */
+  hots_obj_t sav_obj;
+  sb_sav_key_t sav_key;
+  sav_key.acct_id = acct_id;
+  tx->add_to_read_set(RPC_SAVING_REQ, sav_key.hots_key, &sav_obj);
+
+  hots_obj_t chk_obj;
+  sb_chk_key_t chk_key;
+  chk_key.acct_id = acct_id;
+  tx->add_to_read_set(RPC_CHECKING_REQ, chk_key.hots_key, &chk_obj);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+  if (ex_result != tx_status_t::in_progress) {
+    /* Abort if we read a locked  record */
+    tx->abort_rdonly();
+    return;
+  }
+
+  sb_sav_val_t *sav_val = (sb_sav_val_t *)sav_obj.val;
+  _unused(sav_val);
+  sb_chk_val_t *chk_val = (sb_chk_val_t *)chk_obj.val;
+  _unused(chk_val);
+  sb_dassert(sav_val->magic == sb_sav_magic);
+  sb_dassert(chk_val->magic == sb_chk_magic);
+
+  tx_status_t commit_result = tx->commit(yield);
+  if (commit_result == tx_status_t::committed) {
+    stat_tx_committed_tot++;
+    sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+  } else {
+    tx->abort_rdonly();
+  }
+}
+
+/* Add $1.3 to acct_id's checking account */
+void txn_deposit_checking(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::deposit_checking;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters */
+  uint64_t acct_id;
+  sb->get_account(&tg_seed, &acct_id);
+  float amount = 1.3;
+
+  /* Read from checking table */
+  hots_obj_t chk_obj;
+  sb_chk_key_t chk_key;
+  chk_key.acct_id = acct_id;
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key.hots_key, &chk_obj,
+                       tx_write_mode_t::update);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+  sb_dassert(ex_result == tx_status_t::in_progress ||
+             ex_result == tx_status_t::must_abort); /* Found or locked */
+
+  if (ex_result == tx_status_t::must_abort) {
+    tx->abort(yield);
+    return;
+  }
+
+  /* If we are here, execution succeeded and we have a lock*/
+  sb_chk_val_t *chk_val = (sb_chk_val_t *)chk_obj.val;
+  sb_dassert(chk_val->magic == sb_chk_magic);
+
+  chk_val->bal += amount; /* Update checking balance */
+
+  tx_status_t commit_status = tx->commit(yield);
+  _unused(commit_status);
+
+  /* If we managed to lock the record, the txn must commit */
+  sb_dassert(commit_status == tx_status_t::committed);
+
+  stat_tx_committed_tot++;
+  sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+}
+
+/* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
+void txn_send_payment(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::send_payment;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters: send money from acct_id_0 to acct_id_1 */
+  uint64_t acct_id_0, acct_id_1;
+  sb->get_two_accounts(&tg_seed, &acct_id_0, &acct_id_1);
+  float amount = 5.0;
+
+  /* Read from checking table */
+  hots_obj_t chk_obj_0, chk_obj_1;
+
+  sb_chk_key_t chk_key_0, chk_key_1;
+  chk_key_0.acct_id = acct_id_0;
+  chk_key_1.acct_id = acct_id_1;
+
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key_0.hots_key, &chk_obj_0,
+                       tx_write_mode_t::update);
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key_1.hots_key, &chk_obj_1,
+                       tx_write_mode_t::update);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+  sb_dassert(ex_result == tx_status_t::in_progress ||
+             ex_result == tx_status_t::must_abort); /* Found or locked */
+
+  if (ex_result == tx_status_t::must_abort) {
+    tx->abort(yield);
+    return;
+  }
+
+  /* if we are here, execution succeeded and we have locks */
+  sb_chk_val_t *chk_val_0 = (sb_chk_val_t *)chk_obj_0.val;
+  sb_chk_val_t *chk_val_1 = (sb_chk_val_t *)chk_obj_1.val;
+  sb_dassert(chk_val_0->magic == sb_chk_magic);
+  sb_dassert(chk_val_1->magic == sb_chk_magic);
+
+  if (chk_val_0->bal < amount) {
+    tx->abort(yield);
+    return;
+  }
+
+  chk_val_0->bal -= amount; /* Debit */
+  chk_val_1->bal += amount; /* Credit */
+
+  tx_status_t commit_status = tx->commit(yield);
+  _unused(commit_status);
+
+  /* if we managed to lock the records, the txn must commit */
+  sb_dassert(commit_status == tx_status_t::committed);
+
+  stat_tx_committed_tot++;
+  sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+}
+
+/* Add $20 to acct_id's saving's account */
+void txn_transact_saving(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::transact_saving;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters */
+  uint64_t acct_id;
+  sb->get_account(&tg_seed, &acct_id);
+  float amount = 20.20;
+
+  /* Read from saving table */
+  hots_obj_t sav_obj;
+  sb_sav_key_t sav_key;
+  sav_key.acct_id = acct_id;
+  tx->add_to_write_set(RPC_SAVING_REQ, sav_key.hots_key, &sav_obj,
+                       tx_write_mode_t::update);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+  sb_dassert(ex_result == tx_status_t::in_progress ||
+             ex_result == tx_status_t::must_abort); /* Found or locked */
+
+  if (ex_result == tx_status_t::must_abort) {
+    tx->abort(yield);
+    return;
+  }
+
+  /* If we are here, execution succeeded and we have a lock */
+  sb_sav_val_t *sav_val = (sb_sav_val_t *)sav_obj.val;
+  sb_dassert(sav_val->magic == sb_sav_magic);
+
+  sav_val->bal += amount; /* Update saving balance */
+
+  tx_status_t commit_status = tx->commit(yield);
+  _unused(commit_status);
+
+  /* If we managed to lock the record, the txn must commit */
+  sb_dassert(commit_status == tx_status_t::committed);
+
+  stat_tx_committed_tot++;
+  sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+}
+
+/* Read saving and checking balance + update checking balance unconditionally */
+void txn_write_check(coro_yield_t &yield, int coro_id, Tx *tx) {
+  sb_txn_type_t txn_type = sb_txn_type_t::write_check;
+  tx->start();
+  sb_stat_inc(stat_tx_attempted[static_cast<int>(txn_type)], 1);
+  stat_tx_attempted_tot++;
+
+  /* Transaction parameters */
+  uint64_t acct_id;
+  sb->get_account(&tg_seed, &acct_id);
+  float amount = 5.0;
+
+  /* Read from savings. Read checking record for update. */
+  hots_obj_t sav_obj;
+  sb_sav_key_t sav_key;
+  sav_key.acct_id = acct_id;
+  tx->add_to_read_set(RPC_SAVING_REQ, sav_key.hots_key, &sav_obj);
+
+  hots_obj_t chk_obj;
+  sb_chk_key_t chk_key;
+  chk_key.acct_id = acct_id;
+  tx->add_to_write_set(RPC_CHECKING_REQ, chk_key.hots_key, &chk_obj,
+                       tx_write_mode_t::update);
+
+  tx_status_t ex_result = tx->do_read(yield);
+  _unused(ex_result);
+  sb_dassert(ex_result == tx_status_t::in_progress ||
+             ex_result == tx_status_t::must_abort); /* Found or locked */
+
+  if (ex_result == tx_status_t::must_abort) {
+    tx->abort(yield);
+    return;
+  }
+
+  sb_sav_val_t *sav_val = (sb_sav_val_t *)sav_obj.val;
+  sb_chk_val_t *chk_val = (sb_chk_val_t *)chk_obj.val;
+  sb_dassert(sav_val->magic == sb_sav_magic);
+  sb_dassert(chk_val->magic == sb_chk_magic);
+
+  if (sav_val->bal + chk_val->bal < amount) {
+    chk_val->bal -= (amount + 1);
+  } else {
+    chk_val->bal -= amount;
+  }
+
+  tx_status_t commit_result = tx->commit(yield);
+
+  /* This transaction can fail during validation */
+  if (commit_result == tx_status_t::committed) {
+    stat_tx_committed_tot++;
+    sb_stat_inc(stat_tx_committed[static_cast<int>(txn_type)], 1);
+  }
+}
+
+void client_coroutine_function(coro_id_t coro_id,
                                std::vector<ResponseRegion> &resp_regions,
 #if MEASURE_LATENCY == 1
                                ThreadArgs *args,
 #endif
                                coro_yield_t &yield) {
-  ResponseRegion &resp_region = resp_regions[id];
+  ResponseRegion &resp_region = resp_regions[coro_id];
+  Tx *tx = new Tx(coro_id, &resp_region, mappings, logger, GetThreadID());
+
 #if MEASURE_LATENCY == 1
   double start_time = 0.0;
   const int sample_interval = 10000000 / num_clients;
@@ -136,6 +439,39 @@ void client_coroutine_function(coro_id_t id,
 
   while (!stop_signal) {
 #if MEASURE_LATENCY == 1
+    ++cnt;
+    if (cnt == sample_interval) {
+      start_time = get_current_time_in_nanoseconds();
+    }
+#endif
+
+    sb_txn_type_t txn_type = workgen_arr[hrd_fastrand(&tg_seed) % 100];
+    switch (txn_type) {
+      case sb_txn_type_t::amalgamate:
+        txn_amalgamate(yield, coro_id, tx);
+        break;
+      case sb_txn_type_t::balance:
+        txn_balance(yield, coro_id, tx);
+        break;
+      case sb_txn_type_t::deposit_checking:
+        txn_deposit_checking(yield, coro_id, tx);
+        break;
+      case sb_txn_type_t::send_payment:
+        txn_send_payment(yield, coro_id, tx);
+        break;
+      case sb_txn_type_t::transact_saving:
+        txn_transact_saving(yield, coro_id, tx);
+        break;
+      case sb_txn_type_t::write_check:
+        txn_write_check(yield, coro_id, tx);
+        break;
+      default:
+        printf("Invalid txn type\n");
+        assert(false);
+        exit(-1);
+    }
+
+#if MEASURE_LATENCY == 1
     if (cnt == sample_interval) {
       double end_time = get_current_time_in_nanoseconds();
       double latency = end_time - start_time;
@@ -143,26 +479,6 @@ void client_coroutine_function(coro_id_t id,
       cnt = 0;
     }
 #endif
-    // Prepare and post new requests for this client
-    for (int j = 0; j < clt_cmsg_depth; ++j) {
-      rpc_cmsg_t *req_cmsg = resp_region.start_req_cmsg(
-          dummy_rpc_req_type,
-          get_worker_id(resp_region.global_client_id(), num_threads));
-      add_dummy_rpc_req(req_cmsg, clt_inner_req_depth);
-    }
-    int num_reqs_posted = resp_region.post_req_cmsgs();
-#if MEASURE_LATENCY == 1
-    ++cnt;
-    if (cnt == sample_interval) {
-      start_time = get_current_time_in_nanoseconds();
-    }
-#endif
-    // Yield control back to the main loop
-    yield();
-
-    while (!resp_region.check_resp_cmsg(clt_cmsg_depth - 1)) {
-      yield();
-    }
   }
 }
 
@@ -174,6 +490,10 @@ void *client_thread_func(void *arg) {
 #endif
   auto ctx = rpc_client;
   BindCoreNuma(thread_id, numa_node);
+
+  mappings = new Mappings(-1, 1, num_threads, 0, false);
+  workgen_arr = sb->create_workgen_array();
+  tg_seed = 0xdeadbeef + thread_id;
 
   std::vector<ResponseRegion> resp_regions;
   int num_clients_this_thread = 0;
@@ -277,6 +597,8 @@ void run_client(uint16_t port) {
   std::vector<double> latency_samples_array[kMaxThreads];
 #endif
 
+  sb = new SB(1, num_clients, 1);
+
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
   for (long i = 0; i < num_threads; ++i) {
 #if MEASURE_LATENCY == 1
@@ -314,15 +636,16 @@ void *worker_thread_func(void *arg) {
   BindCoreNuma(wrk_id, numa_node);
   std::vector<RequestRegion> req_regions;
 
+  mappings = new Mappings(wrk_id, 1, num_threads, 0, false);
+  sb->populate_all_tables_barrier(mappings);
+
 #if MEMORY_MULTIPLEXING == 1
   req_regions.emplace_back(*ctx, wrk_id, 0);
-  req_regions[0].register_rpc_handler(dummy_rpc_req_type, dummy_rpc_handler,
-                                      nullptr);
+  sb->register_rpc_handlers(&req_regions[0]);
 #else
   for (int i = 0; i < num_clients; ++i) {
     req_regions.emplace_back(*ctx, wrk_id, i);
-    req_regions[i].register_rpc_handler(dummy_rpc_req_type, dummy_rpc_handler,
-                                        nullptr);
+    sb->register_rpc_handlers(&req_regions[i]);
   }
 #endif
 
@@ -421,6 +744,9 @@ void run_server(const std::vector<std::string> &client_machine_list,
   gettimeofday(&end_tv, NULL);
   connect_time = (end_tv.tv_sec - start_tv.tv_sec) * 1000.0 +
                  (end_tv.tv_usec - start_tv.tv_usec) / 1000.0;
+
+  sb = new SB(1, num_clients, 1);
+  sb->init_all_tables();
 
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
   for (long i = 0; i < num_threads; ++i) {

@@ -543,6 +543,10 @@ int ResponseRegion::post_req_cmsgs() {
   return num_cmsg_posted;
 }
 
+rpc_cmsg_t *ResponseRegion::get_resp_cmsg(int index) {
+  return (rpc_cmsg_t *)(addr_ + index * MSG_SLOT_SIZE);
+}
+
 bool ResponseRegion::check_resp_cmsg(int resp_i) {
   volatile rpc_cmsg_t *resp_cmsg =
       (rpc_cmsg_t *)(addr_ + resp_i * MSG_SLOT_SIZE);
