@@ -506,6 +506,7 @@ rpc_cmsg_t *ResponseRegion::start_req_cmsg(node_t wrk_id) {
 rpc_inner_msg_t *ResponseRegion::start_inner_msg(rpc_cmsg_t *cmsg,
                                                  rpc_reqtype_t req_type,
                                                  int size, uint8_t *resp_buf) {
+  assert(num_cmsg_to_post_ > 0);
   rpc_inner_msg_t *inner_msg =
       (rpc_inner_msg_t *)((uint8_t *)cmsg + cmsg->cmsg_len);
   inner_msg->req_type = req_type;
@@ -513,7 +514,6 @@ rpc_inner_msg_t *ResponseRegion::start_inner_msg(rpc_cmsg_t *cmsg,
   user_resp_buf_[num_cmsg_to_post_ - 1][cmsg->num_inner_msgs] = resp_buf;
   cmsg->num_inner_msgs++;
   cmsg->cmsg_len += sizeof(rpc_inner_msg_t) + size;
-  assert(num_cmsg_to_post_ > 0);
   return inner_msg;
 }
 

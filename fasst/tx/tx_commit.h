@@ -51,6 +51,7 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
                                      item.keyhash, ds_reqtype_t::del);
       }
       req_inner_msg->data_len = size_req;
+      req_cmsg->cmsg_len += size_req;
     }
   }
 
