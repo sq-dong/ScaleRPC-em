@@ -56,14 +56,16 @@ typedef int coro_id_t;
 
 int numa_node;
 static const size_t MEM_POOL_SIZE = (1ull << 30);
-static int running_time = 15;
+static int running_time = 10;
 int num_threads = 1;
 int num_clients = 1;
 int stop_signal = 0;
 double connect_time = 0.0;
 std::string dump_file_path;
 std::string dump_prefix;
-std::atomic<uint64_t> total_attempts(0);
+std::atomic<uint64_t> total_cmsg_attempts(0);
+std::atomic<uint64_t> total_tx_attempted(0);
+std::atomic<uint64_t> total_tx_committed(0);
 pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
@@ -79,15 +81,26 @@ __thread long long stat_tx_committed[SB_TXN_TYPES];
 
 static const int worker_depth = 32;
 static int clt_cmsg_depth = 1;
-static int clt_inner_req_depth = 1;
 
-void report(uint64_t elapsed_time) {
-  auto throughput = total_attempts / elapsed_time / 1000000.0;
+void client_report(uint64_t elapsed_time) {
+  auto attempted_tput = total_tx_attempted.load() / elapsed_time / 1000000.0;
+  auto committed_tput = total_tx_committed.load() / elapsed_time / 1000000.0;
   SDS_INFO(
-      "%s: #threads = %d, #clients = %d, IOPS = %.3lf M/s (coalesced message), "
-      "IOPS = %.3lf M/s (inner request)",
-      dump_prefix.c_str(), num_threads, num_clients, throughput,
-      throughput * clt_inner_req_depth);
+      "%s: #threads = %d, #clients = %d, #machines = %d, #replicas = %d, "
+      "elapsed_time = %d, total_tx_attempted = %ld, total_tx_committed = %ld, "
+      "attempted_tput = %.2f M/s, committed_tput = %.2f M/s",
+      dump_prefix.c_str(), num_threads, num_clients, sb->num_machines,
+      sb->num_replicas, elapsed_time, total_tx_attempted.load(),
+      total_tx_committed.load(), attempted_tput, committed_tput);
+}
+
+void server_report(uint64_t elapsed_time) {
+  auto cmsg_tput = total_cmsg_attempts.load() / elapsed_time / 1000000.0;
+  SDS_INFO(
+      "%s: #threads = %d, #clients = %d, #machines = %d, #replicas = %d, "
+      "elapsed_time = %d, total_cmsg_attempted = %ld, cmsg_tput = %.2f M/s",
+      dump_prefix.c_str(), num_threads, num_clients, sb->num_machines,
+      sb->num_replicas, elapsed_time, total_cmsg_attempts.load(), cmsg_tput);
 }
 
 #if MEASURE_LATENCY == 1
@@ -521,7 +534,6 @@ void *client_thread_func(void *arg) {
   }
 
   pthread_barrier_wait(&barrier);
-
   // Main loop to resume coroutines
   while (!stop_signal) {
     for (auto &coroutine : coroutines) {
@@ -530,13 +542,13 @@ void *client_thread_func(void *arg) {
       }
     }
   }
-
   // Clean up coroutines
   for (auto &coroutine : coroutines) {
     delete coroutine;
   }
-
   pthread_barrier_wait(&barrier);
+  total_tx_attempted.fetch_add(stat_tx_attempted_tot);
+  total_tx_committed.fetch_add(stat_tx_committed_tot);
   return NULL;
 }
 
@@ -614,6 +626,7 @@ void run_client(uint16_t port) {
     pthread_join(tid[i], NULL);
   }
   pthread_barrier_destroy(&barrier);
+  client_report(running_time);
 
 #if MEASURE_LATENCY == 1
   // Collect latency samples
@@ -719,7 +732,7 @@ void *worker_thread_func(void *arg) {
 #endif
 
   pthread_barrier_wait(&barrier);
-  total_attempts.fetch_add(attempts);
+  total_cmsg_attempts.fetch_add(attempts);
   return NULL;
 }
 
@@ -765,7 +778,7 @@ void run_server(const std::vector<std::string> &client_machine_list,
   pthread_barrier_destroy(&barrier);
   elapsed_time = (end_tv.tv_sec - start_tv.tv_sec) * 1.0 +
                  (end_tv.tv_usec - start_tv.tv_usec) / 1000000.0;
-  report(elapsed_time);
+  server_report(elapsed_time);
 
   for (int client_id = 0; client_id < num_clients; ++client_id) {
     rpc_server->disconnect(client_id);
