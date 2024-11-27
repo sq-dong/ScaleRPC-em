@@ -32,9 +32,10 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
       //                                       sizeof(uint64_t)); /* Small resp
       //                                       */
       rpc_inner_msg_t *req_inner_msg =
-          rpc->start_inner_msg(req_cmsg, rpc_reqtype, 0);  // set size latter
+          rpc->start_inner_msg(req_cmsg, rpc_reqtype, 0,  // set size latter
+                               (uint8_t *)item.obj->val);
 
-      tx_dassert(req_i < WORKER_WINDOW_SIZE);
+      tx_dassert(req_i < MAX_INNER_MSGS_COALESCED);
       req_i++;
 
       size_t size_req;
@@ -53,7 +54,7 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
     }
   }
 
-  //   tx_dassert(req_i <= WORKER_WINDOW_SIZE);
+  //   tx_dassert(req_i <= MAX_INNER_MSGS_COALESCED);
   int posted = rpc->post_req_cmsgs();
   tx_wait_till_ready(yield, posted);
 
@@ -122,7 +123,8 @@ forceinline tx_status_t Tx::commit(coro_yield_t &yield) {
   if (mappings->num_backups > 0) {
     /* Can we send the (W * f) messages to backups in one batch? */
     bool backups_in_one_batch =
-        (write_set.size() * mappings->num_backups) <= WORKER_WINDOW_SIZE;
+        (write_set.size() * mappings->num_backups) <=
+        MAX_OUTSTANDING_CMSGS * MAX_INNER_MSGS_COALESCED;
 
     // Send to backups
     if (backups_in_one_batch) {
@@ -197,7 +199,8 @@ forceinline void Tx::abort(coro_yield_t &yield) {
       continue;
     }
     rpc_inner_msg_t *req_inner_msg = rpc->start_inner_msg(
-        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t));
+        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t),
+        (uint8_t *)&item.obj->hdr);
     ds_forge_generic_get_req(req_inner_msg, global_client_id, item.key,
                              item.keyhash, ds_reqtype_t::unlock);
   }
@@ -229,7 +232,8 @@ forceinline void Tx::abort(coro_yield_t &yield) {
 
 /* Validate keys. For now, we re-read full objects during validation. */
 bool Tx::validate(coro_yield_t &yield) {
-  tx_dassert(read_set.size() > 0 && read_set.size() <= WORKER_WINDOW_SIZE);
+  tx_dassert(read_set.size() > 0 &&
+             read_set.size() <= MAX_INNER_MSGS_COALESCED);
 
   /* Send requests */
   rpc_cmsg_t *req_cmsg = rpc->start_req_cmsg(thread_id);
@@ -249,7 +253,8 @@ bool Tx::validate(coro_yield_t &yield) {
      * up the buffer on calling commit().
      */
     rpc_inner_msg_t *req_inner_msg = rpc->start_inner_msg(
-        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t));
+        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t),
+        (uint8_t *)&item.obj->hdr);
     ds_forge_generic_get_req(req_inner_msg, global_client_id, item.key,
                              item.keyhash, ds_reqtype_t::get_rdonly);
   }

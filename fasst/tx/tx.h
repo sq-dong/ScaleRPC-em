@@ -114,8 +114,8 @@ class Tx {
 
     /* Initialize Tx fields */
     tx_status = tx_status_t::aborted;
-    read_set.reserve(WORKER_WINDOW_SIZE);
-    write_set.reserve(WORKER_WINDOW_SIZE);
+    read_set.reserve(MAX_INNER_MSGS_COALESCED);
+    write_set.reserve(MAX_INNER_MSGS_COALESCED);
 
     lockserver_locked = false;
 

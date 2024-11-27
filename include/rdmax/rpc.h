@@ -26,8 +26,9 @@ namespace rdmax {
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
 #define WORKER_DEPTH 16
-#define WORKER_WINDOW_SIZE \
-  8  // a client has @WORKER_WINDOW_SIZE slots in a worker's request region
+#define MAX_OUTSTANDING_CMSGS \
+  8  // a client has @MAX_OUTSTANDING_CMSGS slots in a worker's request region
+#define MAX_INNER_MSGS_COALESCED 8
 
 #if MEMORY_MULTIPLEXING == 1
 #define DEFUALT_WINDOW_SIZE 256  // slot
@@ -36,8 +37,9 @@ namespace rdmax {
 #else
 #define NUM_MACHINES 2
 #define NUM_CLIENTS 2
-#define OFFSET(wrk_id, clt_id, slot_idx)                                     \
-  ((((wrk_id) * NUM_CLIENTS + (clt_id)) * WORKER_WINDOW_SIZE + (slot_idx)) * \
+#define OFFSET(wrk_id, clt_id, slot_idx)                          \
+  ((((wrk_id) * NUM_CLIENTS + (clt_id)) * MAX_OUTSTANDING_CMSGS + \
+    (slot_idx)) *                                                 \
    MSG_SLOT_SIZE)
 #endif
 
@@ -131,7 +133,7 @@ class ResponseRegion {
                  int max_clt_cmsg_depth);
   rpc_cmsg_t *start_req_cmsg(node_t wrk_id);
   rpc_inner_msg_t *start_inner_msg(rpc_cmsg_t *cmsg, rpc_reqtype_t req_type,
-                                   int size);
+                                   int size, uint8_t *resp_buf);
   int post_req_cmsgs();
   bool check_resp_cmsg(int resp_i);
   rpc_cmsg_t *get_resp_cmsg(int index);
@@ -147,7 +149,8 @@ class ResponseRegion {
   uint32_t num_cmsg_to_post_;
   node_t local_node_id_;
   node_t global_clt_id_;
-  node_t target_wrks_[WORKER_WINDOW_SIZE];
+  node_t target_wrks_[MAX_OUTSTANDING_CMSGS];
+  uint8_t *user_resp_buf_[MAX_OUTSTANDING_CMSGS][MAX_INNER_MSGS_COALESCED];
   node_t qp_node_id_;
 };
 

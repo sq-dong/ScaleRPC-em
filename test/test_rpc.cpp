@@ -129,7 +129,7 @@ void client_coroutine_function(coro_id_t id,
           get_worker_id(resp_region.global_client_id(), num_threads));
       for (int i = 0; i < clt_inner_req_depth; ++i) {
         rpc_inner_msg_t *inner_msg = resp_region.start_inner_msg(
-            req_cmsg, dummy_rpc_req_type, dummy_rpc_req_size);
+            req_cmsg, dummy_rpc_req_type, dummy_rpc_req_size, nullptr);
       }
     }
     resp_region.post_req_cmsgs();

@@ -11,7 +11,7 @@
 forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
   tx_dassert(tx_status == tx_status_t::in_progress);
 
-  tx_dassert(read_set.size() + write_set.size() <= WORKER_WINDOW_SIZE);
+  tx_dassert(read_set.size() + write_set.size() <= MAX_INNER_MSGS_COALESCED);
   tx_dassert(rs_index <= read_set.size());
   tx_dassert(ws_index <= write_set.size());
 
@@ -37,7 +37,8 @@ forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
   for (size_t i = rs_index; i < read_set.size(); i++) {
     tx_rwset_item_t &item = read_set[i];
     rpc_inner_msg_t *req_inner_msg = rpc->start_inner_msg(
-        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t));
+        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t),
+        (uint8_t *)&item.obj->hdr);
     ds_forge_generic_get_req(req_inner_msg, global_client_id, item.key,
                              item.keyhash, ds_reqtype_t::get_rdonly);
     req_i++;
@@ -47,7 +48,8 @@ forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
   for (size_t i = ws_index; i < write_set.size(); i++) {
     tx_rwset_item_t &item = write_set[i];
     rpc_inner_msg_t *req_inner_msg = rpc->start_inner_msg(
-        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t));
+        req_cmsg, item.rpc_reqtype, sizeof(ds_generic_get_req_t),
+        (uint8_t *)&item.obj->hdr);
     /* In the execute phase, update and delete keys are handled similarly */
     if (item.write_mode != tx_write_mode_t::insert) {
       /* Update or delete */
@@ -61,7 +63,7 @@ forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
     req_i++;
   }
 
-  tx_dassert(req_i > 0 && req_i <= WORKER_WINDOW_SIZE);
+  tx_dassert(req_i > 0 && req_i <= MAX_INNER_MSGS_COALESCED);
 
   int posted = rpc->post_req_cmsgs();
   tx_wait_till_ready(yield, posted);

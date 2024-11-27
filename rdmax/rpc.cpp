@@ -331,7 +331,7 @@ RequestRegion::RequestRegion(class RpcNode &node, node_t wrk_id, node_t clt_id)
   new_window_size_ = DEFUALT_WINDOW_SIZE;
 #else
   addr_ = (uint8_t *)node.get_cache_addr() + OFFSET(wrk_id, clt_id, 0);
-  window_size_ = WORKER_WINDOW_SIZE;
+  window_size_ = MAX_OUTSTANDING_CMSGS;
 #endif
 }
 
@@ -479,7 +479,7 @@ namespace rdmax {
 ResponseRegion::ResponseRegion(class RpcNode &node, node_t local_node_id,
                                node_t qp_node_id, int max_clt_cmsg_depth)
     : node_(node), local_node_id_(local_node_id), qp_node_id_(qp_node_id) {
-  assert(max_clt_cmsg_depth <= WORKER_WINDOW_SIZE);
+  assert(max_clt_cmsg_depth <= MAX_OUTSTANDING_CMSGS);
   global_clt_id_ = node.get_peer_node_id(local_node_id);
   offset_ = local_node_id * MSG_SLOT_SIZE * max_clt_cmsg_depth;
   addr_ = (uint8_t *)node.get_cache_addr() + offset_;
@@ -487,7 +487,7 @@ ResponseRegion::ResponseRegion(class RpcNode &node, node_t local_node_id,
 #if MEMORY_MULTIPLEXING == 0
   memset(head_, 0, sizeof(head_[0]) * MAX_NUM_WORKERS);
 #endif
-  memset(target_wrks_, -1, sizeof(target_wrks_[0]) * WORKER_WINDOW_SIZE);
+  memset(target_wrks_, -1, sizeof(target_wrks_[0]) * MAX_OUTSTANDING_CMSGS);
 }
 
 rpc_cmsg_t *ResponseRegion::start_req_cmsg(node_t wrk_id) {
@@ -499,19 +499,21 @@ rpc_cmsg_t *ResponseRegion::start_req_cmsg(node_t wrk_id) {
   req_cmsg->cmsg_len = sizeof(rpc_cmsg_t);
 
   target_wrks_[num_cmsg_to_post_] = wrk_id;
-  ++num_cmsg_to_post_;
+  num_cmsg_to_post_++;
   return req_cmsg;
 }
 
 rpc_inner_msg_t *ResponseRegion::start_inner_msg(rpc_cmsg_t *cmsg,
                                                  rpc_reqtype_t req_type,
-                                                 int size) {
+                                                 int size, uint8_t *resp_buf) {
   rpc_inner_msg_t *inner_msg =
       (rpc_inner_msg_t *)((uint8_t *)cmsg + cmsg->cmsg_len);
   inner_msg->req_type = req_type;
   inner_msg->data_len = size;
+  user_resp_buf_[num_cmsg_to_post_ - 1][cmsg->num_inner_msgs] = resp_buf;
   cmsg->num_inner_msgs++;
   cmsg->cmsg_len += sizeof(rpc_inner_msg_t) + size;
+  assert(num_cmsg_to_post_ > 0);
   return inner_msg;
 }
 
@@ -525,7 +527,7 @@ int ResponseRegion::post_req_cmsgs() {
     uint64_t offset = OFFSET(target_wrks_[req_cmsg_i], global_clt_id_,
                              head_[target_wrks_[req_cmsg_i]]);
     head_[target_wrks_[req_cmsg_i]] =
-        (head_[target_wrks_[req_cmsg_i]] + 1) % WORKER_WINDOW_SIZE;
+        (head_[target_wrks_[req_cmsg_i]] + 1) % MAX_OUTSTANDING_CMSGS;
 #endif
     GlobalAddress remote_addr(qp_node_id_, offset);
     auto option = (req_cmsg_i == num_cmsg_to_post_ - 1)
@@ -544,7 +546,14 @@ int ResponseRegion::post_req_cmsgs() {
 }
 
 rpc_cmsg_t *ResponseRegion::get_resp_cmsg(int index) {
-  return (rpc_cmsg_t *)(addr_ + index * MSG_SLOT_SIZE);
+  rpc_cmsg_t *resp_cmsg = (rpc_cmsg_t *)(addr_ + index * MSG_SLOT_SIZE);
+  rpc_inner_msg_t *inner_msg = (rpc_inner_msg_t *)(resp_cmsg + 1);
+  for (int i = 0; i < resp_cmsg->num_inner_msgs; ++i) {
+    memcpy(user_resp_buf_[index][i], inner_msg + 1, inner_msg->data_len);
+    inner_msg =
+        (rpc_inner_msg_t *)((uint8_t *)(inner_msg + 1) + inner_msg->data_len);
+  }
+  return resp_cmsg;
 }
 
 bool ResponseRegion::check_resp_cmsg(int resp_i) {
