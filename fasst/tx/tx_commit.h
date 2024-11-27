@@ -18,6 +18,10 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
   for (int repl_i : replica_vec) {
     tx_dassert(repl_i >= 0 && repl_i < mappings->num_replicas);
 
+    if (write_set.size() == 0) {
+      continue;
+    }
+
     rpc_cmsg_t *req_cmsg = rpc->start_req_cmsg(thread_id);
 
     for (size_t w_i = 0; w_i < write_set.size(); w_i++) {
@@ -27,10 +31,6 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
           (repl_i == 0) ? item.primary_mn : item.backup_mn[repl_i - 1];
       uint16_t rpc_reqtype = item.rpc_reqtype + repl_i;
 
-      //   rpc_req_t *req = rpc->start_new_req(coro_id, rpc_reqtype, repl_mn,
-      //                                       (uint8_t *)item.obj->val,
-      //                                       sizeof(uint64_t)); /* Small resp
-      //                                       */
       rpc_inner_msg_t *req_inner_msg =
           rpc->start_inner_msg(req_cmsg, rpc_reqtype, 0,  // set size latter
                                (uint8_t *)item.obj->val);
@@ -56,6 +56,10 @@ forceinline void Tx::send_updates_to_replicas(coro_yield_t &yield,
   }
 
   //   tx_dassert(req_i <= MAX_INNER_MSGS_COALESCED);
+  if (req_i == 0) {
+    return;
+  }
+
   int posted = rpc->post_req_cmsgs();
   tx_wait_till_ready(yield, posted);
 
@@ -189,6 +193,9 @@ forceinline void Tx::abort(coro_yield_t &yield) {
    * that were successfully (temporarily) inserted were also marked locked
    * during execution.
    */
+  if (write_set.size() == 0) {
+    return;
+  }
 
   size_t req_i = 0; /* Separate index bc we will skip some write set keys */
   rpc_cmsg_t *req_cmsg = rpc->start_req_cmsg(thread_id);
@@ -204,11 +211,6 @@ forceinline void Tx::abort(coro_yield_t &yield) {
         (uint8_t *)&item.obj->hdr);
     ds_forge_generic_get_req(req_inner_msg, global_client_id, item.key,
                              item.keyhash, ds_reqtype_t::unlock);
-  }
-
-  /* Nothing to unlock */
-  if (req_i == 0) {
-    return;
   }
 
   int posted = rpc->post_req_cmsgs();

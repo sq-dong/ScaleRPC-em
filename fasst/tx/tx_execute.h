@@ -11,7 +11,8 @@
 forceinline tx_status_t Tx::do_read(coro_yield_t &yield) {
   tx_dassert(tx_status == tx_status_t::in_progress);
 
-  tx_dassert(read_set.size() + write_set.size() <= MAX_INNER_MSGS_COALESCED);
+  tx_dassert(read_set.size() + write_set.size() <= MAX_INNER_MSGS_COALESCED &&
+             read_set.size() + write_set.size() > 0);
   tx_dassert(rs_index <= read_set.size());
   tx_dassert(ws_index <= write_set.size());
 

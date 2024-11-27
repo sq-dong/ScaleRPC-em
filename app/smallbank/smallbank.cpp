@@ -87,7 +87,7 @@ void client_report(uint64_t elapsed_time) {
   auto committed_tput = total_tx_committed.load() / elapsed_time / 1000000.0;
   SDS_INFO(
       "%s: #threads = %d, #clients = %d, #machines = %d, #replicas = %d, "
-      "elapsed_time = %d, total_tx_attempted = %ld, total_tx_committed = %ld, "
+      "elapsed_time = %ld, total_tx_attempted = %ld, total_tx_committed = %ld, "
       "attempted_tput = %.2f M/s, committed_tput = %.2f M/s",
       dump_prefix.c_str(), num_threads, num_clients, sb->num_machines,
       sb->num_replicas, elapsed_time, total_tx_attempted.load(),
@@ -98,7 +98,7 @@ void server_report(uint64_t elapsed_time) {
   auto cmsg_tput = total_cmsg_attempts.load() / elapsed_time / 1000000.0;
   SDS_INFO(
       "%s: #threads = %d, #clients = %d, #machines = %d, #replicas = %d, "
-      "elapsed_time = %d, total_cmsg_attempted = %ld, cmsg_tput = %.2f M/s",
+      "elapsed_time = %ld, total_cmsg_attempted = %ld, cmsg_tput = %.2f M/s",
       dump_prefix.c_str(), num_threads, num_clients, sb->num_machines,
       sb->num_replicas, elapsed_time, total_cmsg_attempts.load(), cmsg_tput);
 }
@@ -608,7 +608,7 @@ void run_client(uint16_t port) {
   std::vector<double> latency_samples_array[kMaxThreads];
 #endif
 
-  sb = new SB(1, num_clients, 1);
+  sb = new SB(1, num_threads, 1);
 
   pthread_barrier_init(&barrier, NULL, num_threads + 1);
   for (long i = 0; i < num_threads; ++i) {

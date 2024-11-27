@@ -72,8 +72,10 @@ class Tx {
   }
 
   forceinline void tx_wait_till_ready(coro_yield_t &yield, int num_resps) {
-    while (!rpc->check_resp_cmsg(num_resps - 1)) {
-      tx_yield(yield);
+    if (num_resps > 0) {
+      while (!rpc->check_resp_cmsg(num_resps - 1)) {
+        tx_yield(yield);
+      }
     }
   }
 
