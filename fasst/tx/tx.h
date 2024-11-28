@@ -76,6 +76,9 @@ class Tx {
       while (!rpc->check_resp_cmsg(num_resps - 1)) {
         tx_yield(yield);
       }
+      while (!rpc->check_resp_cmsg(num_resps - 1)) {
+        tx_yield(yield);
+      }
     }
   }
 

@@ -366,9 +366,10 @@ int RequestRegion::poll_req_cmsgs() {
   int cmsg_i = 0;
   for (; cmsg_i < WORKER_DEPTH; ++cmsg_i) {
 #if MEMORY_MULTIPLEXING == 1
-    uint8_t *slot = addr_ + (((head_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE +
-                             index_base_ * MSG_SLOT_SIZE) %
-                                WORKER_MEMORY_SIZE;
+    uint8_t *slot =
+        addr_ + (((head_ + cmsg_i + 1) % window_size_) * MSG_SLOT_SIZE +
+                 index_base_ * MSG_SLOT_SIZE) %
+                    WORKER_MEMORY_SIZE;
 #else
     uint8_t *slot = addr_ + ((head_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE;
 #endif
