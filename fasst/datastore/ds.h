@@ -176,4 +176,102 @@ forceinline size_t ds_forge_generic_put_req(rpc_inner_msg_t *inner_msg,
   }
 }
 
+inline void ds_dump_rpc_cmsg(const rpc_cmsg_t *cmsg) {
+  printf("\n");
+  // Print rpc_cmsg_t fields
+  printf("rpc_cmsg_t:\n");
+  printf("  magic: %u\n", cmsg->magic);
+  printf("  num_inner_msgs: %u\n", cmsg->num_inner_msgs);
+  printf("  src_id: %u\n", cmsg->src_id);
+#if MEMORY_MULTIPLEXING == 1
+  printf("  window_size: %u\n", be16toh(cmsg->window_size));
+#else
+  printf("  window_size: %u (unused)\n", be16toh(cmsg->window_size));
+#endif
+  printf("  reserved: %u\n", cmsg->reserved);
+  printf("  resp_offset/cmsg_len: %llu\n",
+         (unsigned long long)cmsg->resp_offset);
+
+  // Pointer to the start of the inner messages and data
+  const uint8_t *current_ptr = (const uint8_t *)(cmsg + 1);
+
+  // Iterate over each inner message
+  for (int i = 0; i < cmsg->num_inner_msgs; ++i) {
+    const struct rpc_inner_msg_t *inner_msg =
+        (const struct rpc_inner_msg_t *)current_ptr;
+
+    printf("rpc_inner_msg_t [%d]:\n", i);
+    printf("  req_type/resp_type: %u\n", inner_msg->req_type);
+    printf("  reserved: %u\n", inner_msg->reserved);
+    printf("  data_len: %u\n", inner_msg->data_len);
+
+    // Move pointer to the data
+    current_ptr += sizeof(struct rpc_inner_msg_t);
+
+    // Check and parse the data
+    if (inner_msg->data_len > sizeof(struct ds_generic_get_req_t)) {
+      printf("  data interpreted as ds_generic_put_req_t:\n");
+      const struct ds_generic_put_req_t *put_req =
+          (const struct ds_generic_put_req_t *)current_ptr;
+      printf("    caller_id: %u\n", put_req->caller_id);
+      printf("    req_type: %llu\n", (unsigned long long)put_req->req_type);
+      printf("    val_size: %llu\n", (unsigned long long)put_req->val_size);
+      printf("    keyhash: %llu\n", (unsigned long long)put_req->keyhash);
+      printf("    key: 0x%016llx\n",
+             (unsigned long long)put_req->key);  // Print key as hex
+      printf("    val: ");
+      for (size_t k = 0; k < put_req->val_size; ++k) {
+        printf("%02x ", put_req->val[k]);
+      }
+      printf("\n");
+    } else if (inner_msg->data_len == sizeof(struct ds_generic_get_req_t)) {
+      printf("  data interpreted as ds_generic_get_req_t:\n");
+      const struct ds_generic_get_req_t *get_req =
+          (const struct ds_generic_get_req_t *)current_ptr;
+      printf("    caller_id: %u\n", get_req->caller_id);
+      printf("    req_type: %llu\n", (unsigned long long)get_req->req_type);
+      printf("    keyhash: %llu\n", (unsigned long long)get_req->keyhash);
+      printf("    key: 0x%016llx\n",
+             (unsigned long long)get_req->key);  // Print key as hex
+    } else {
+      printf("  data: ");
+      for (int j = 0; j < inner_msg->data_len; ++j) {
+        printf("%02x ", current_ptr[j]);
+      }
+      printf("\n");
+    }
+
+    // Move pointer to the next inner message
+    current_ptr += inner_msg->data_len;
+  }
+  fflush(stdout);
+}
+
+inline void ds_dump_generic_req(const ds_generic_get_req_t *req) {
+  ds_generic_put_req_t *put_req = (ds_generic_put_req_t *)req;
+  printf("\n");
+  printf("ds generic get/put req:\n");
+  printf("  caller_id: %u\n", req->caller_id);
+  printf("  req_type: %llu\n", (unsigned long long)put_req->req_type);
+  printf("  val_size: %llu\n", (unsigned long long)put_req->val_size);
+  printf("  keyhash: %llu\n", (unsigned long long)put_req->keyhash);
+  printf("  key: 0x%016llx\n",
+         (unsigned long long)req->key);  // Print key as hex
+  printf("  val: ");
+  for (size_t i = 0; i < put_req->val_size; ++i) {
+    printf("%02x ", put_req->val[i]);
+  }
+  printf("\n");
+  fflush(stdout);
+}
+
+inline void ds_dump_hots_hdr_t(const hots_hdr_t *hdr) {
+  printf("\n");
+  printf("hots_hdr_t:\n");
+  printf("  locked: %llu\n", (unsigned long long)hdr->locked);
+  printf("  version: %llu\n", (unsigned long long)hdr->version);
+  printf("  canary: %llu\n", (unsigned long long)hdr->canary);
+  fflush(stdout);
+}
+
 #endif  // DS_H

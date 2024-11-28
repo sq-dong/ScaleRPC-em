@@ -48,6 +48,7 @@ FixedTable<StaticConfig>::FixedTable(const ::mica::util::Config& config,
 
     // buckets_ = reinterpret_cast<Bucket*>(alloc->hrd_malloc_socket(bkt_shm_key,
     //     shm_size, numa_node));	// Zeroes out per-bucket timestamps
+    // assert(buckets_ != NULL);
     buckets_ = reinterpret_cast<Bucket*>(mmap_huge_page(shm_size));
     assert(buckets_ != NULL);
   }
@@ -77,8 +78,8 @@ FixedTable<StaticConfig>::~FixedTable() {
   printf("Destroying table %s\n", name.c_str());
   reset();
 
-  //if (!alloc_->unmap(buckets_)) assert(false);
-  if(!alloc_->hrd_free(bkt_shm_key, buckets_)) assert(false);
+  // if (!alloc_->unmap(buckets_)) assert(false);
+  // if(!alloc_->hrd_free(bkt_shm_key, buckets_)) assert(false);
 }
 
 template <class StaticConfig>

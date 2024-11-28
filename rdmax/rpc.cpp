@@ -432,7 +432,6 @@ int RequestRegion::handle_req_cmsgs(int num_cmsgs) {
     resp_cmsg->src_id = wrk_id_;
     resp_cmsg->cmsg_len = resp_cmsg_size;
 
-    dump_rpc_cmsg(req_cmsg);
     memcpy(slot, resp_cmsg, resp_cmsg_size);
   }
 
@@ -450,7 +449,6 @@ int RequestRegion::post_resp_cmsgs(int num_cmsgs) {
     uint8_t *slot = addr_ + ((tail_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE;
 #endif
     rpc_cmsg_t *resp_cmsg = (rpc_cmsg_t *)slot;
-    dump_rpc_cmsg(resp_cmsg);
     auto option = (cmsg_i == num_cmsgs - 1) ? RpcNode::Option::PostRequest
                                             : RpcNode::Option::None;
     GlobalAddress remote_addr(targets_[cmsg_i].clt_id,
@@ -538,7 +536,6 @@ int ResponseRegion::post_req_cmsgs() {
     rpc_cmsg_t *req_cmsg = (rpc_cmsg_t *)(addr_ + req_cmsg_i * MSG_SLOT_SIZE);
     size_t cmsg_len = req_cmsg->cmsg_len;
     req_cmsg->resp_offset = offset_ + req_cmsg_i * MSG_SLOT_SIZE;
-    dump_rpc_cmsg(req_cmsg);
     if (node_.write((void *)req_cmsg, remote_addr, cmsg_len, option)) {
       return -1;
     }
@@ -556,7 +553,6 @@ rpc_cmsg_t *ResponseRegion::get_resp_cmsg(int index) {
     inner_msg =
         (rpc_inner_msg_t *)((uint8_t *)(inner_msg + 1) + inner_msg->data_len);
   }
-  dump_rpc_cmsg(resp_cmsg);
   return resp_cmsg;
 }
 

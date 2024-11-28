@@ -22,7 +22,6 @@ namespace rdmax {
 #define MEMORY_MULTIPLEXING 1
 #define MEASURE_LATENCY 1
 #define CONNECTION_GROUPING 0
-#define DUMP_RPC_CMSG 0
 
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
@@ -86,51 +85,6 @@ struct rpc_inner_msg_t {
   uint16_t data_len;  // excluding the header
 };
 static_assert(sizeof(rpc_inner_msg_t) == 4, "");
-
-inline void dump_rpc_cmsg(const struct rpc_cmsg_t *cmsg) {
-#if DUMP_RPC_CMSG == 1
-  // Print rpc_cmsg_t fields
-  printf("rpc_cmsg_t:\n");
-  printf("  magic: %u\n", cmsg->magic);
-  printf("  num_inner_msgs: %u\n", cmsg->num_inner_msgs);
-  printf("  src_id: %u\n", cmsg->src_id);
-#if MEMORY_MULTIPLEXING == 1
-  printf("  window_size: %u\n", be16toh(cmsg->window_size));
-#else
-  printf("  window_size: %u (unused)\n", be16toh(cmsg->window_size));
-#endif
-  printf("  reserved: %u\n", cmsg->reserved);
-  printf("  resp_offset/cmsg_len: %llu\n",
-         (unsigned long long)cmsg->resp_offset);
-
-  // Pointer to the start of the inner messages and data
-  const uint8_t *current_ptr = (const uint8_t *)(cmsg + 1);
-
-  // Iterate over each inner message
-  for (int i = 0; i < cmsg->num_inner_msgs; ++i) {
-    const struct rpc_inner_msg_t *inner_msg =
-        (const struct rpc_inner_msg_t *)current_ptr;
-
-    printf("rpc_inner_msg_t [%d]:\n", i);
-    printf("  req_type/resp_type: %u\n", inner_msg->req_type);
-    printf("  reserved: %u\n", inner_msg->reserved);
-    printf("  data_len: %u\n", inner_msg->data_len);
-
-    // Move pointer to the data
-    current_ptr += sizeof(struct rpc_inner_msg_t);
-
-    // Print data associated with this inner message
-    printf("  data: ");
-    for (int j = 0; j < inner_msg->data_len; ++j) {
-      printf("%02x ", current_ptr[j]);
-    }
-    printf("\n");
-
-    // Move pointer to the next inner message
-    current_ptr += inner_msg->data_len;
-  }
-#endif
-}
 
 class RequestRegion {
  public:
