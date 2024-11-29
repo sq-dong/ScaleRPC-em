@@ -436,6 +436,9 @@ namespace rdmax {
                     continue;
                 }
                 node.qp_list[i] = allocate_queue_pair(i);
+                if (node_list_[i].qp_list[i] == nullptr) {
+                    node_list_[i].qp_list[i] = node.qp_list[i];
+                }
 #endif
                 if (!node.qp_list[i]) {
                     return -1;

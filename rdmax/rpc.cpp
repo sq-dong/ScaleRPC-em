@@ -412,7 +412,7 @@ int RequestRegion::handle_req_cmsgs(int num_cmsgs) {
     size_t resp_cmsg_size = sizeof(rpc_cmsg_t);
 
     targets_[cmsg_i].clt_id = req_cmsg->src_id;
-    targets_[cmsg_i].resp_offset = req_cmsg->resp_offset;
+    targets_[cmsg_i].resp_offset = req_cmsg->resp_offset * MSG_SLOT_SIZE;
 
     num_inner_reqs += req_cmsg->num_inner_msgs;
 
@@ -536,7 +536,7 @@ int ResponseRegion::post_req_cmsgs() {
                       : RpcNode::Option::None;
     rpc_cmsg_t *req_cmsg = (rpc_cmsg_t *)(addr_ + req_cmsg_i * MSG_SLOT_SIZE);
     size_t cmsg_len = req_cmsg->cmsg_len;
-    req_cmsg->resp_offset = offset_ + req_cmsg_i * MSG_SLOT_SIZE;
+    req_cmsg->resp_offset = (offset_ + req_cmsg_i * MSG_SLOT_SIZE) / MSG_SLOT_SIZE;
     if (node_.write((void *)req_cmsg, remote_addr, cmsg_len, option)) {
       return -1;
     }

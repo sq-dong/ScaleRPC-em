@@ -188,7 +188,6 @@ inline void ds_dump_rpc_cmsg(const rpc_cmsg_t *cmsg) {
 #else
   printf("  window_size: %u (unused)\n", be16toh(cmsg->window_size));
 #endif
-  printf("  reserved: %u\n", cmsg->reserved);
   printf("  resp_offset/cmsg_len: %llu\n",
          (unsigned long long)cmsg->resp_offset);
 
@@ -202,7 +201,6 @@ inline void ds_dump_rpc_cmsg(const rpc_cmsg_t *cmsg) {
 
     printf("rpc_inner_msg_t [%d]:\n", i);
     printf("  req_type/resp_type: %u\n", inner_msg->req_type);
-    printf("  reserved: %u\n", inner_msg->reserved);
     printf("  data_len: %u\n", inner_msg->data_len);
 
     // Move pointer to the data

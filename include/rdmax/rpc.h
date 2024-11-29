@@ -67,14 +67,13 @@ struct rpc_cmsg_t {
   uint8_t num_inner_msgs;  // number of coalesced requests or responses
   uint16_t src_id;         // client id for requests, worker id for responses
   uint16_t window_size;    // used in Memory Multiplexing
-  uint16_t reserved;
   union {
-    uint64_t resp_offset;  // where the response message should be put in a
+    uint16_t resp_offset;  // where the response message should be put in a
                            // client's response region
-    uint64_t cmsg_len;     // including all headers
+    uint16_t cmsg_len;     // including all headers
   };
 };
-static_assert(sizeof(rpc_cmsg_t) == 16, "");
+static_assert(sizeof(rpc_cmsg_t) == 8, "");
 
 struct rpc_inner_msg_t {
   union {

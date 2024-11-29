@@ -118,7 +118,7 @@ void client_coroutine_function(coro_id_t id,
   ResponseRegion &resp_region = resp_regions[id];
 #if MEASURE_LATENCY == 1
   double start_time = 0.0;
-  const int sample_interval = 10000000 / num_clients;
+  const int sample_interval = 1000000 / num_clients;
   size_t cnt = 0;
   std::vector<double> &latency_samples = *(args->latency_samples);
 #endif
