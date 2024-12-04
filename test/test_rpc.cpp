@@ -85,7 +85,7 @@ size_t dummy_rpc_handler(uint8_t *resp_buf, rpc_resptype_t *resp_type,
 
 void report(uint64_t elapsed_time) {
   auto throughput = total_attempts / elapsed_time / 1000000.0;
-  auto average_batch_size = total_attempts / total_loops / 1.0;
+  auto average_batch_size = (float)total_attempts / total_loops;
   SDS_INFO(
       "%s: #threads = %d, #clients = %d, IOPS = %.3lf M/s (coalesced message), "
       "IOPS = %.3lf M/s (inner request), average response batch size = %.3lf\n",
@@ -120,7 +120,7 @@ void client_coroutine_function(coro_id_t id,
   ResponseRegion &resp_region = resp_regions[id];
 #if MEASURE_LATENCY == 1
   double start_time = 0.0;
-  const int sample_interval = 1000000 / num_clients;
+  const int sample_interval = 10000;
   size_t cnt = 0;
   std::vector<double> &latency_samples = *(args->latency_samples);
 #endif

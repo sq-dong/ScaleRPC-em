@@ -375,6 +375,16 @@ int RequestRegion::poll_req_cmsgs() {
 #endif
     volatile rpc_cmsg_t *cmsg = (rpc_cmsg_t *)slot;
     if (cmsg->magic != RPC_REQ_MAGIC) {
+#if MEMORY_MULTIPLEXING == 1
+      uint8_t *slot =
+          addr_ + (((head_ + cmsg_i) % window_size_) * MSG_SLOT_SIZE +
+                   index_base_ * MSG_SLOT_SIZE) %
+                      WORKER_MEMORY_SIZE;
+      rpc_cmsg_t *last_req_cmsg = (rpc_cmsg_t *)slot;
+      if (last_req_cmsg->magic == RPC_REQ_MAGIC) {
+        ++cmsg_i;
+      }
+#endif
       break;
     }
   }
@@ -536,7 +546,8 @@ int ResponseRegion::post_req_cmsgs() {
                       : RpcNode::Option::None;
     rpc_cmsg_t *req_cmsg = (rpc_cmsg_t *)(addr_ + req_cmsg_i * MSG_SLOT_SIZE);
     size_t cmsg_len = req_cmsg->cmsg_len;
-    req_cmsg->resp_offset = (offset_ + req_cmsg_i * MSG_SLOT_SIZE) / MSG_SLOT_SIZE;
+    req_cmsg->resp_offset =
+        (offset_ + req_cmsg_i * MSG_SLOT_SIZE) / MSG_SLOT_SIZE;
     if (node_.write((void *)req_cmsg, remote_addr, cmsg_len, option)) {
       return -1;
     }
