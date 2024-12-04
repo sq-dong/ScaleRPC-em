@@ -61,6 +61,7 @@ double connect_time = 0.0;
 std::string dump_file_path;
 std::string dump_prefix;
 std::atomic<uint64_t> total_attempts(0);
+std::atomic<uint64_t> total_loops(0);
 pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
@@ -70,7 +71,7 @@ static const int dummy_rpc_req_size =
 static const int dummy_rpc_resp_size =
     32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
 
-static const int worker_depth = 32;
+static const int sync_depth = 32;
 static int clt_cmsg_depth = 1;
 static int clt_inner_req_depth = 1;
 
@@ -84,11 +85,12 @@ size_t dummy_rpc_handler(uint8_t *resp_buf, rpc_resptype_t *resp_type,
 
 void report(uint64_t elapsed_time) {
   auto throughput = total_attempts / elapsed_time / 1000000.0;
+  auto average_batch_size = total_attempts / total_loops / 1.0;
   SDS_INFO(
       "%s: #threads = %d, #clients = %d, IOPS = %.3lf M/s (coalesced message), "
-      "IOPS = %.3lf M/s (inner request)",
+      "IOPS = %.3lf M/s (inner request), average response batch size = %.3lf\n",
       dump_prefix.c_str(), num_threads, num_clients, throughput,
-      throughput * clt_inner_req_depth);
+      throughput * clt_inner_req_depth, average_batch_size);
 }
 
 #if MEASURE_LATENCY == 1
@@ -303,6 +305,7 @@ void *worker_thread_func(void *arg) {
   int wrk_id = GetThreadID();
   auto ctx = rpc_server;
   uint64_t attempts = 0;
+  uint64_t post_loops = 0;
   BindCoreNuma(wrk_id, numa_node);
   std::vector<RequestRegion> req_regions;
 
@@ -319,7 +322,7 @@ void *worker_thread_func(void *arg) {
 #endif
 
   int clt_i = 0;
-  int token = worker_depth;
+  int token = sync_depth;
   size_t cnt = 0;
   pthread_barrier_wait(&barrier);
 
@@ -340,11 +343,12 @@ void *worker_thread_func(void *arg) {
           int num_inner_reqs = req_regions[clt_i].handle_req_cmsgs(num_cmsgs);
           if (token - num_cmsgs < 0) {
             assert(ctx->sync() == 0);
-            token = worker_depth;
+            token = sync_depth;
           }
           req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
           attempts += num_cmsgs;
           token -= num_cmsgs;
+          ++post_loops;
         }
         ++loop;
         if (loop >= TIME_CHECK_INTERVAL) {
@@ -375,7 +379,7 @@ void *worker_thread_func(void *arg) {
       int num_inner_reqs = req_regions[clt_i].handle_req_cmsgs(num_cmsgs);
       if (token - num_cmsgs < 0) {
         assert(ctx->sync() == 0);
-        token = worker_depth;
+        token = sync_depth;
       }
       req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
 #if MEMORY_MULTIPLEXING == 1
@@ -383,12 +387,14 @@ void *worker_thread_func(void *arg) {
 #endif
       attempts += num_cmsgs;
       token -= num_cmsgs;
+      ++post_loops;
     }
   }
 #endif
 
   pthread_barrier_wait(&barrier);
   total_attempts.fetch_add(attempts);
+  total_loops.fetch_add(post_loops);
   return NULL;
 }
 
