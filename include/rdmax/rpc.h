@@ -25,7 +25,7 @@ namespace rdmax {
 
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
-#define WORKER_DEPTH 16
+#define WORKER_DEPTH 8
 #define MAX_OUTSTANDING_CMSGS \
   8  // a client has @MAX_OUTSTANDING_CMSGS slots in a worker's request region
 #define MAX_INNER_MSGS_COALESCED 8

@@ -71,7 +71,7 @@ static const int dummy_rpc_req_size =
 static const int dummy_rpc_resp_size =
     32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
 
-static const int sync_depth = 32;
+static const int sync_depth = 128;
 static int clt_cmsg_depth = 1;
 static int clt_inner_req_depth = 1;
 
