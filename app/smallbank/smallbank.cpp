@@ -79,7 +79,7 @@ __thread long long stat_tx_committed_tot = 0; /* Collected in non-debug */
 __thread long long stat_tx_attempted[SB_TXN_TYPES];
 __thread long long stat_tx_committed[SB_TXN_TYPES];
 
-static const int worker_depth = 32;
+static const int worker_depth = 128;
 static int clt_cmsg_depth = 1;
 
 void client_report(uint64_t elapsed_time) {
