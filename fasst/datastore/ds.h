@@ -180,7 +180,6 @@ inline void ds_dump_rpc_cmsg(const rpc_cmsg_t *cmsg) {
   printf("\n");
   // Print rpc_cmsg_t fields
   printf("rpc_cmsg_t:\n");
-  printf("  magic: %u\n", cmsg->magic);
   printf("  num_inner_msgs: %u\n", cmsg->num_inner_msgs);
   printf("  src_id: %u\n", cmsg->src_id);
 #if MEMORY_MULTIPLEXING == 1

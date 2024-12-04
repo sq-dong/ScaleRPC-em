@@ -61,17 +61,16 @@ typedef uint8_t rpc_resptype_t;
 
 #define RPC_REQ_MAGIC 0x5A
 #define RPC_RESP_MAGIC 0xA5
+typedef uint8_t magic_tail_t;
+static_assert(sizeof(magic_tail_t) == 1, "");
 
 struct rpc_cmsg_t {
-  uint8_t magic;
-  uint8_t num_inner_msgs;  // number of coalesced requests or responses
-  uint16_t src_id;         // client id for requests, worker id for responses
-  uint16_t window_size;    // used in Memory Multiplexing
-  union {
-    uint16_t resp_offset;  // where the response message should be put in a
-                           // client's response region
-    uint16_t cmsg_len;     // including all headers
-  };
+  uint16_t cmsg_len : 10;  // including all headers
+  uint16_t num_inner_msgs : 6;
+  uint16_t src_id;       // client id for requests, worker id for responses
+  uint16_t window_size;  // used in Memory Multiplexing
+  uint16_t resp_offset;  // where the response message should be put in a
+                         // client's response region
 };
 static_assert(sizeof(rpc_cmsg_t) == 8, "");
 
@@ -84,6 +83,14 @@ struct rpc_inner_msg_t {
   uint16_t data_len;  // excluding the header
 };
 static_assert(sizeof(rpc_inner_msg_t) == 4, "");
+
+inline bool check_finished_req_cmsg(volatile rpc_cmsg_t *cmsg) {
+  return *(magic_tail_t *)((uint8_t *)cmsg + cmsg->cmsg_len) == RPC_REQ_MAGIC;
+}
+
+inline void clear_magic_tail(volatile rpc_cmsg_t *cmsg) {
+  *(magic_tail_t *)((uint8_t *)cmsg + cmsg->cmsg_len) = 0;
+}
 
 class RequestRegion {
  public:
