@@ -79,10 +79,9 @@ struct rpc_inner_msg_t {
     rpc_reqtype_t req_type;
     rpc_resptype_t resp_type;
   };
-  uint8_t reserved;
-  uint16_t data_len;  // excluding the header
+  uint8_t data_len;  // excluding the header
 };
-static_assert(sizeof(rpc_inner_msg_t) == 4, "");
+static_assert(sizeof(rpc_inner_msg_t) == 2, "");
 
 inline bool check_finished_req_cmsg(volatile rpc_cmsg_t *cmsg) {
   return *(magic_tail_t *)((uint8_t *)cmsg + cmsg->cmsg_len) == RPC_REQ_MAGIC;

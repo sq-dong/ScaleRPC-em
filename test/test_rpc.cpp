@@ -66,10 +66,13 @@ pthread_barrier_t barrier;
 RpcNode *rpc_server;
 RpcNode *rpc_client;
 static const int dummy_rpc_req_type = 0;
-static const int dummy_rpc_req_size =
-    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
-static const int dummy_rpc_resp_size =
-    32 - sizeof(rpc_cmsg_t) - sizeof(rpc_inner_msg_t);
+static const int message_size = 32;
+static const int dummy_rpc_req_size = message_size - sizeof(rpc_cmsg_t) -
+                                      sizeof(rpc_inner_msg_t) -
+                                      sizeof(magic_tail_t);
+static const int dummy_rpc_resp_size = message_size - sizeof(rpc_cmsg_t) -
+                                       sizeof(rpc_inner_msg_t) -
+                                       sizeof(magic_tail_t);
 
 static const int sync_depth = 128;
 static int clt_cmsg_depth = 1;
@@ -279,7 +282,7 @@ void run_client(uint16_t port) {
     pthread_create(&tid[i], NULL, client_thread_func, (void *)&thread_args[i]);
   }
   pthread_barrier_wait(&barrier);
-  sleep(running_time * 2);
+  sleep(running_time * 1.5);
   stop_signal = 1;
   pthread_barrier_wait(&barrier);
   for (int i = 0; i < num_threads; ++i) {
