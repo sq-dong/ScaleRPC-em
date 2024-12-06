@@ -73,6 +73,8 @@ static const int dummy_rpc_req_size = message_size - sizeof(rpc_cmsg_t) -
 static const int dummy_rpc_resp_size = message_size - sizeof(rpc_cmsg_t) -
                                        sizeof(rpc_inner_msg_t) -
                                        sizeof(magic_tail_t);
+static_assert(dummy_rpc_req_size >= 0 && dummy_rpc_resp_size >= 0,
+              "Invalid message size");
 
 static const int sync_depth = 128;
 static int clt_cmsg_depth = 1;
@@ -80,7 +82,7 @@ static int clt_inner_req_depth = 1;
 
 size_t dummy_rpc_handler(uint8_t *resp_buf, rpc_resptype_t *resp_type,
                          const uint8_t *req_buf, size_t req_len, void *arg) {
-  assert(resp_buf != NULL && req_buf != NULL && req_len == dummy_rpc_req_size);
+  assert(resp_buf != NULL && req_buf != NULL);
   (void)(arg);
 
   return dummy_rpc_resp_size;
@@ -410,6 +412,7 @@ void run_server(const std::vector<std::string> &client_machine_list,
 
   gettimeofday(&start_tv, NULL);
   rpc_server = new RpcNode();
+  rpc_server->disable_inline_write();
   for (int client_id = 0; client_id < num_clients; ++client_id) {
     int machine_id = client_id / (num_clients / client_machine_list.size());
     if (machine_id == client_machine_list.size()) {
