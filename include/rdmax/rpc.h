@@ -18,8 +18,8 @@
 
 namespace rdmax {
 
-#define QP_MULTIPLEXING 1
-#define MEMORY_MULTIPLEXING 1
+#define QP_MULTIPLEXING 0
+#define MEMORY_MULTIPLEXING 0
 #define MEASURE_LATENCY 1
 #define CONNECTION_GROUPING 0
 
@@ -79,9 +79,9 @@ struct rpc_inner_msg_t {
     rpc_reqtype_t req_type;
     rpc_resptype_t resp_type;
   };
-  uint8_t data_len;  // excluding the header
+  uint16_t data_len;  // excluding the header
 };
-static_assert(sizeof(rpc_inner_msg_t) == 2, "");
+static_assert(sizeof(rpc_inner_msg_t) == 4, "");
 
 inline bool check_finished_req_cmsg(volatile rpc_cmsg_t *cmsg) {
   return *(magic_tail_t *)((uint8_t *)cmsg + cmsg->cmsg_len) == RPC_REQ_MAGIC;

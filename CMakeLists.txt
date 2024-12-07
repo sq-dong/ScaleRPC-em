@@ -23,3 +23,4 @@ add_subdirectory(rdmax)
 
 add_subdirectory(test)
 add_subdirectory(app/smallbank)
+add_subdirectory(app/tatp)
