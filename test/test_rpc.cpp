@@ -331,46 +331,6 @@ void *worker_thread_func(void *arg) {
   size_t cnt = 0;
   pthread_barrier_wait(&barrier);
 
-#if CONNECTION_GROUPING == 1
-  while (!stop_signal) {
-    for (int group_start = 0; group_start < num_clients;
-         group_start += CLIENTS_PER_GROUP) {
-      int group_end = std::min(group_start + CLIENTS_PER_GROUP, num_clients);
-      auto group_start_time = std::chrono::high_resolution_clock::now();
-      uint64_t loop = 0;
-
-      while (true) {
-        for (int clt_i = group_start; clt_i < group_end; ++clt_i) {
-          int num_cmsgs = req_regions[clt_i].poll_req_cmsgs();
-          if (num_cmsgs == 0) {
-            continue;
-          }
-          int num_inner_reqs = req_regions[clt_i].handle_req_cmsgs(num_cmsgs);
-          if (token - num_cmsgs < 0) {
-            assert(ctx->sync() == 0);
-            token = sync_depth;
-          }
-          req_regions[clt_i].post_resp_cmsgs(num_cmsgs);
-          attempts += num_cmsgs;
-          token -= num_cmsgs;
-          ++post_loops;
-        }
-        ++loop;
-        if (loop >= TIME_CHECK_INTERVAL) {
-          loop = 0;
-          auto now_time = std::chrono::high_resolution_clock::now();
-          int64_t period =
-              std::chrono::duration_cast<std::chrono::microseconds>(
-                  now_time - group_start_time)
-                  .count();
-          if (period >= TIME_PER_GROUP) {
-            break;
-          }
-        }
-      }
-    }
-  }
-#else
   while (!stop_signal) {
 #if MEMORY_MULTIPLEXING == 1
     {
@@ -395,7 +355,6 @@ void *worker_thread_func(void *arg) {
       ++post_loops;
     }
   }
-#endif
 
   pthread_barrier_wait(&barrier);
   total_attempts.fetch_add(attempts);
