@@ -49,6 +49,10 @@
 using namespace rdmax;
 using namespace boost::coroutines;
 
+#define CLIENTS_PER_GROUP 320
+#define TIME_PER_GROUP 60  // microseconds
+#define NUM_MACHINES 2
+
 // Define the coroutine typedefs
 typedef boost::coroutines::symmetric_coroutine<void> symmetric_coroutine_t;
 typedef symmetric_coroutine_t::call_type coro_call_t;
@@ -570,6 +574,8 @@ void client_coroutine_function(coro_id_t coro_id,
 #if MEASURE_LATENCY == 1
                                ThreadArgs *args,
 #endif
+                               std::atomic<int> &current_group,
+                               std::vector<int> &my_groups,
                                coro_yield_t &yield) {
   ResponseRegion &resp_region = resp_regions[coro_id];
   Tx *tx = new Tx(coro_id, &resp_region, mappings, logger, GetThreadID());
@@ -588,6 +594,11 @@ void client_coroutine_function(coro_id_t coro_id,
       start_time = get_current_time_in_nanoseconds();
     }
 #endif
+
+    while (std::find(my_groups.begin(), my_groups.end(),
+                     current_group.load()) == my_groups.end()) {
+      yield();
+    }
 
     tatp_txn_type_t txn_type = workgen_arr[hrd_fastrand(&tg_seed) % 100];
     stat_tx_attempted_tot++;
@@ -659,25 +670,62 @@ void *client_thread_func(void *arg) {
     }
   }
 
-  // Create a vector to store coroutines
-  std::vector<coro_call_t *> coroutines;
+  const int max_active = CLIENTS_PER_GROUP / NUM_MACHINES / num_threads;
+  int num_groups = 1;
+  if (num_clients_this_thread > 0) {
+    num_groups = (num_clients_this_thread + max_active - 1) / max_active;
+  }
 
-  // Initialize coroutines for each client
+  std::vector<std::vector<int>> groups(num_groups);
+  {
+    int idx = 0;
+    for (int i = 0; i < num_clients_this_thread; ++i) {
+      groups[idx].push_back(i);
+      idx = (idx + 1) % num_groups;
+    }
+
+    for (int g = 0; g < num_groups; ++g) {
+      while ((int)groups[g].size() < max_active &&
+             (int)groups[g].size() < num_clients_this_thread) {
+        int repeat_client = groups[g].size() % num_clients_this_thread;
+        groups[g].push_back(repeat_client);
+      }
+    }
+  }
+
+  std::vector<std::vector<int>> coro_groups(num_clients_this_thread);
+  for (int g = 0; g < num_groups; ++g) {
+    for (auto c : groups[g]) {
+      coro_groups[c].push_back(g);
+    }
+  }
+
+  std::vector<coro_call_t *> coroutines;
+  static thread_local std::atomic<int> current_group(0);
+
   for (int i = 0; i < num_clients_this_thread; ++i) {
     coro_call_t *coroutine = new coro_call_t(
-        boost::bind(&client_coroutine_function,
-                    i,  // coro_id_t id
-                    boost::ref(resp_regions),
+        boost::bind(&client_coroutine_function, i, boost::ref(resp_regions),
 #if MEASURE_LATENCY == 1
                     args,
 #endif
-                    _1));  // _1 is the placeholder for coro_yield_t&
+                    boost::ref(current_group), boost::ref(coro_groups[i]), _1));
     coroutines.push_back(coroutine);
   }
 
   pthread_barrier_wait(&barrier);
-  // Main loop to resume coroutines
+
+  auto timeslice_duration = std::chrono::microseconds(TIME_PER_GROUP);
+  auto next_switch_time = std::chrono::steady_clock::now() + timeslice_duration;
+
   while (!stop_signal) {
+    auto now = std::chrono::steady_clock::now();
+    if (now >= next_switch_time) {
+      int old = current_group.load();
+      current_group.store((old + 1) % num_groups);
+      next_switch_time = now + timeslice_duration;
+    }
+
     for (auto &coroutine : coroutines) {
       if (*coroutine) {
         (*coroutine)();
@@ -890,8 +938,8 @@ void run_server(const std::vector<std::string> &client_machine_list,
 
 int main(int argc, char **argv) {
   const char *env_path = getenv("TATP_CONF");
-  JsonConfig config = JsonConfig::load_file(
-      env_path ? env_path : ROOT_DIR "/config/tatp.json");
+  JsonConfig config =
+      JsonConfig::load_file(env_path ? env_path : ROOT_DIR "/config/tatp.json");
   int port = (int)config.get("port").get_int64();
   dump_file_path = config.get("dump_file_path").get_str();
   if (getenv("DUMP_FILE_PATH")) {

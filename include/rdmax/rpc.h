@@ -19,9 +19,9 @@
 namespace rdmax {
 
 #define QP_MULTIPLEXING 0
-#define MEMORY_MULTIPLEXING 0
+#define MEMORY_MULTIPLEXING 1
 #define MEASURE_LATENCY 1
-#define CONNECTION_GROUPING 0
+#define CONNECTION_GROUPING 1
 
 #define MAX_NUM_WORKERS 40
 #define MSG_SLOT_SIZE 1024  // max size of a RPC request/response in bytes
@@ -41,12 +41,6 @@ namespace rdmax {
   ((((wrk_id) * NUM_CLIENTS + (clt_id)) * MAX_OUTSTANDING_CMSGS + \
     (slot_idx)) *                                                 \
    MSG_SLOT_SIZE)
-#endif
-
-#if CONNECTION_GROUPING == 1
-#define CLIENTS_PER_GROUP 160
-#define TIME_PER_GROUP 80  // microseconds
-#define TIME_CHECK_INTERVAL 5
 #endif
 
 // from rpc_types.h in FaSST
