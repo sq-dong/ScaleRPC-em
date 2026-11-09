@@ -25,5 +25,11 @@ CMAKE_COMMAND="cmake .."
 echo "Running: $CMAKE_COMMAND"
 $CMAKE_COMMAND
 make -j
-cp ../patch/libmlx5.so libmlx5.so
+# Prefer paired UUAR-patched libs when both are present under patch/.
+if [ -f ../patch/libmlx5.so ] && [ -f ../patch/libibverbs.so ]; then
+  cp ../patch/libmlx5.so libmlx5.so
+  cp ../patch/libibverbs.so libibverbs.so
+elif [ -f ../patch/libmlx5.so ]; then
+  cp ../patch/libmlx5.so libmlx5.so
+fi
 echo "Build completed with \`$CMAKE_COMMAND\`"

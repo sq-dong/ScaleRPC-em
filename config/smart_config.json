@@ -2,7 +2,7 @@
   "infiniband": {
     "name": "mlx5_0",
     "port": 1,
-    "gid_idx": 3
+    "gid_idx": 0
   },
 
   "qp_param": {
