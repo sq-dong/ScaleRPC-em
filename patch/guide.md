@@ -1,12 +1,14 @@
 By default, the RDMA driver allows **at most** 12 median-latency
-doorbell registers per RDMA context, which make our 
+doorbell registers per RDMA context, which make our
 optimiazation impractial. To remove such restriction, we have hacked the rdma-core library used for our test platform.
 
 You may have to recompile the rdma-core library and preload it when executing the application.
 
-1. Fetch the source code of the latest rdma-core library, and install it to your system.
+1. Fetch the source code of rdma-core matching your OFED / system libibverbs
+   (this host uses IBVERBS_PRIVATE_57; set `IBVERBS_PABI_VERSION` accordingly in
+   rdma-core `CMakeLists.txt` if needed).
 
-2. Edit the file `rdma-core/providers/mlx5/mlx5.c`, starting from Line 554. 
+2. Edit `rdma-core/providers/mlx5/mlx5.c`, in `get_num_low_lat_uuars`:
 
 ```c
 static int get_num_low_lat_uuars(int tot_uuars)
@@ -22,17 +24,29 @@ static int get_num_low_lat_uuars(int tot_uuars)
 		return -EINVAL;
 
 	// PLEASE REMOVE THE NEXT LINE
-	// num = max(num, tot_uuars - MLX5_MED_BFREGS_TSHOLD); 
+	// num = max(num, tot_uuars - MLX5_MED_BFREGS_TSHOLD);
 	return num;
 }
 ```
 
-3. Recompile the rdma-core library
+3. Recompile rdma-core (e.g. `ninja mlx5`).
 
-4. Copy the new `libmlx5.so` to the binary path (i.e., `smart/build/`)
+4. Copy **both** libraries from that same build into `patch/` (and `build.sh`
+   copies them into `build/`):
 
-5. Execute our application : 
+	- `libmlx5.so`
+	- `libibverbs.so`
+
+5. Run with matching preload + library path:
+
+	```bash
+	cd build
+	export LD_LIBRARY_PATH=$PWD
+	export LD_PRELOAD=$PWD/libibverbs.so:$PWD/libmlx5.so
+	./your_app <params>
 	```
-	LD_PRELOAD=libmlx5.so test_application <params>
-	```
-	If preloading is unsuccessful, a warning message will be printed to stderr. 
+
+	Preloading only `libmlx5.so` against the system `libibverbs` will fail to
+	open the device (private cmd ABI mismatch), even if the symbol version
+	number matches. If `LD_PRELOAD` is unset, SMART prints a warning and
+	disables thread-aware UUAR allocation.

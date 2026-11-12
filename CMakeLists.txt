@@ -3,6 +3,9 @@ project(sds CXX ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-O3")
+# Prefer multiarch RDMA libs over mismatched /usr/lib64 OFED leftovers.
+set(CMAKE_EXE_LINKER_FLAGS "-L/usr/lib/x86_64-linux-gnu ${CMAKE_EXE_LINKER_FLAGS}")
+set(CMAKE_SHARED_LINKER_FLAGS "-L/usr/lib/x86_64-linux-gnu ${CMAKE_SHARED_LINKER_FLAGS}")
 set(FASST_PATH ${CMAKE_SOURCE_DIR}/fasst)
 
 include_directories(include fasst)

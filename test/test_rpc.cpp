@@ -436,7 +436,7 @@ int main(int argc, char **argv) {
     // @num_clients clients to connect
     num_clients = atoi(argv[2]);
 #if MEMORY_MULTIPLEXING == 0
-    assert(num_clients == NUM_CLIENTS);
+    assert(num_clients > 0 && num_clients <= NUM_CLIENTS);
 #endif
     run_server(client_machine_list, port);
   } else if (argc == 4) {
@@ -445,7 +445,8 @@ int main(int argc, char **argv) {
     // @num_clients clients to be emulated
     num_clients = atoi(argv[2]);
 #if MEMORY_MULTIPLEXING == 0
-    assert(num_clients == NUM_CLIENTS / NUM_MACHINES);
+    assert(num_clients > 0 &&
+           num_clients <= NUM_CLIENTS / NUM_MACHINES);
 #endif
     // @clt_cmsg_depth RPC requests to be posted by each client
     clt_cmsg_depth = atoi(argv[3]);

@@ -19,7 +19,8 @@
 namespace rdmax {
 
 #define QP_MULTIPLEXING 0
-#define MEMORY_MULTIPLEXING 1
+// No Tofino shared request region on this cluster: per-client slots.
+#define MEMORY_MULTIPLEXING 0
 #define MEASURE_LATENCY 1
 #define CONNECTION_GROUPING 1
 
@@ -35,7 +36,9 @@ namespace rdmax {
 #define WORKER_MEMORY_SIZE (1 << 24)
 #define OFFSET(worker_id) (worker_id * WORKER_MEMORY_SIZE)
 #else
-#define NUM_MACHINES 2
+// Single client machine (host72). Use 2 for the paper two-client topology.
+// NUM_CLIENTS is the address-space cap; runtime clients may be <= this value.
+#define NUM_MACHINES 1
 #define NUM_CLIENTS 960
 #define OFFSET(wrk_id, clt_id, slot_idx)                          \
   ((((wrk_id) * NUM_CLIENTS + (clt_id)) * MAX_OUTSTANDING_CMSGS + \

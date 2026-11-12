@@ -5,3 +5,9 @@ script-old
 thirdparty
 cmake-build-debug
 __pycache__
+deps/
+scripts/
+patch/local-build/
+patch/*.bak
+patch/libmlx5.so.*
+
